@@ -1075,8 +1075,10 @@ jobs:
           pve = body.find("new PVE2_API")
           if auth < 0 or pve < 0 or auth > pve:
               raise SystemExit("ClientArea does not authorize ownership before PVE access")
-          if "client_error" not in body:
-              raise SystemExit("ClientArea lacks generic authorization-failure surface")
+          if "pvewhmcs_clientarea_error_response($params" not in body:
+              raise SystemExit("ClientArea lacks generic authorization/backend failure surface")
+          if "function pvewhmcs_clientarea_error_response" not in src or "'client_error'" not in src:
+              raise SystemExit("Generic ClientArea error helper is missing")
           PY
           grep -Fq '{if $client_error}' modules/servers/pvewhmcs/clientarea.tpl
           grep -Fq '{$client_error|escape:' modules/servers/pvewhmcs/clientarea.tpl
