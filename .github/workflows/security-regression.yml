@@ -307,6 +307,84 @@ jobs:
           grep -Fq "function update_lxc_plan(\$id)" modules/addons/pvewhmcs/pvewhmcs.php
           test "$(grep -Fc 'name="plan_id"' modules/addons/pvewhmcs/pvewhmcs.php)" -ge 2
 
+      - name: Structurally verify addon POST CSRF coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          source = Path("modules/addons/pvewhmcs/pvewhmcs.php").read_text(encoding="utf-8")
+
+          # Every emitted POST form must carry the module's WHMCS admin token
+          # helper somewhere before that form's closing tag.
+          form_starts = list(re.finditer(
+              r'<form\b[^>]*method=["\']post["\'][^>]*>',
+              source,
+              flags=re.IGNORECASE,
+          ))
+          if len(form_starts) < 9:
+              raise SystemExit(f"expected at least 9 addon POST forms, found {len(form_starts)}")
+
+          missing = []
+          for index, match in enumerate(form_starts, start=1):
+              close = source.find("</form>", match.end())
+              if close < 0:
+                  raise SystemExit(f"POST form {index} has no closing form tag")
+              block = source[match.start():close]
+              if "pvewhmcs_admin_csrf_input()" not in block:
+                  missing.append(index)
+
+          if missing:
+              raise SystemExit(f"POST forms missing CSRF helper: {missing}")
+
+          required = [
+              "$_SERVER['REQUEST_METHOD'] === 'POST'",
+              "function_exists('check_token')",
+              "check_token();",
+          ]
+          for token in required:
+              if token not in source:
+                  raise SystemExit(f"missing global POST CSRF guard: {token}")
+
+          mutation_functions = [
+              "import_guest",
+              "save_config",
+              "save_qemu_plan",
+              "update_qemu_plan",
+              "save_lxc_plan",
+              "update_lxc_plan",
+              "save_ip_pool",
+              "add_ip_2_pool",
+              "remove_plan",
+              "removeIpPool",
+              "removeip",
+          ]
+
+          function_starts = list(re.finditer(
+              r'(?m)^\s*function\s+([A-Za-z0-9_]+)\s*\(',
+              source,
+          ))
+          ranges = {}
+          for index, match in enumerate(function_starts):
+              name = match.group(1)
+              end = function_starts[index + 1].start() if index + 1 < len(function_starts) else len(source)
+              ranges[name] = source[match.start():end]
+
+          for name in mutation_functions:
+              body = ranges.get(name)
+              if body is None:
+                  raise SystemExit(f"mutation function not found: {name}")
+              if "$_GET[" in body:
+                  raise SystemExit(f"mutation function {name} reads target/state from $_GET")
+
+          print(
+              f"validated {len(form_starts)} CSRF-protected POST forms "
+              f"and {len(mutation_functions)} GET-free mutation functions"
+          )
+          PY
+
       - name: Keep client and stored admin output escaped
         shell: bash
         run: |
