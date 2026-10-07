@@ -1047,6 +1047,57 @@ This is a high-confidence regression gate, not a substitute for GitHub secret sc
 
 ---
 
+## SEC-023 — Client power actions lacked explicit module-level CSRF validation
+
+**Severity:** MEDIUM  
+**Status:** FIXED - NEEDS VERIFICATION  
+**Category:** CWE-352 Cross-Site Request Forgery  
+**Primary files:** `modules/servers/pvewhmcs/pvewhmcs.php`, `modules/servers/pvewhmcs/clientarea.tpl`
+
+### Evidence
+
+The Client Area exposed Start, Reboot, Power Off and Hard Stop through `ClientAreaCustomButtonArray`. The corresponding module functions revalidated service ownership before reaching PVE, but they did not explicitly require POST or call WHMCS `check_token()`.
+
+WHMCS documents custom client functions as module actions invoked from the product-details Client Area and documents POST forms for custom functions; the Client Area exposes a CSRF `token` template variable that modules can submit with state-changing forms.
+
+### Security impact
+
+Without an explicit module-level CSRF boundary, a state-changing custom action depends on dispatch/UI behavior outside this module. A future WHMCS theme/routing change or crafted request could potentially trigger power operations from an authenticated customer session without a module-verified anti-CSRF token.
+
+### Remediation applied
+
+- Removed Start/Reboot/Power Off/Hard Stop from `ClientAreaCustomButtonArray`.
+- Added dedicated client-only custom functions:
+  - `clientVmStart`
+  - `clientVmReboot`
+  - `clientVmShutdown`
+  - `clientVmStop`
+- Added `ClientAreaAllowedFunctions` so those explicit client functions remain routable without exposing the old unprotected custom buttons.
+- Client Area now renders four explicit `POST` forms containing:
+  - service ID,
+  - `modop=custom`,
+  - the dedicated client action,
+  - the escaped WHMCS `token`.
+- Added `pvewhmcs_require_client_power_csrf()`, which rejects non-POST requests and requires WHMCS `check_token()` before any PVE power action runs.
+- Admin custom buttons continue using the existing admin functions, avoiding an unnecessary compatibility change to WHMCS Admin behavior.
+- Ownership validation from SEC-020 still runs inside the shared internal action before PVE credential/API use.
+
+### Acceptance criteria
+
+- Client power actions invoked through GET are rejected.
+- POST without a valid WHMCS CSRF token is rejected by `check_token()`.
+- Valid Client Area POST + token reaches the existing ownership-validated internal action.
+- The Client Area contains no direct state-changing `vmStart/vmReboot/vmShutdown/vmStop` custom-button mappings.
+- Admin power buttons continue to function.
+- All four customer power forms render and execute successfully in the active WHMCS theme.
+
+### Fix commit / verification
+
+- Commit: pending merge
+- Verification: Security Regression CI behaviorally requires POST and confirms `check_token()` is invoked. Live WHMCS Client Area smoke testing is still required before marking VERIFIED.
+
+---
+
 # Additional hardening observations
 
 These are not currently ranked above the primary findings but should be considered during refactoring:
