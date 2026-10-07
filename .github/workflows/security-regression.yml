@@ -520,6 +520,98 @@ jobs:
       - name: JavaScript syntax check for patched noVNC decoder
         run: node --check modules/servers/pvewhmcs/novnc/core/decoders/zrle.js
 
+
+      - name: Behaviorally validate admin plan inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          php <<'PHP'
+          <?php
+          chdir('modules/addons/pvewhmcs');
+          require 'pvewhmcs.php';
+
+          function validQemuPost() {
+              return array(
+                  'title' => 'Secure QEMU',
+                  'ostype' => 'l26',
+                  'cpus' => '1',
+                  'cpuemu' => 'host',
+                  'cores' => '2',
+                  'cpulimit' => '0',
+                  'cpuunits' => '500000',
+                  'memory' => '2048',
+                  'balloon' => '0',
+                  'disk' => '40',
+                  'diskformat' => 'qcow2',
+                  'diskcache' => 'none',
+                  'disktype' => 'virtio',
+                  'diskio' => '0',
+                  'storage' => 'local-lvm',
+                  'netmode' => 'bridge',
+                  'bridge' => 'vmbr',
+                  'vmbr' => '0',
+                  'netmodel' => 'virtio',
+                  'vlanid' => '',
+                  'netrate' => '0',
+                  'bw' => '',
+                  'ipv6' => 'auto',
+                  'kvm' => '1',
+                  'onboot' => '1',
+              );
+          }
+
+          $_POST = validQemuPost();
+          $qemu = pvewhmcs_validate_qemu_plan_input();
+          if ($qemu['cpuunits'] !== 500000 || $qemu['vlanid'] !== null || $qemu['kvm'] !== 1) {
+              throw new RuntimeException('Valid QEMU plan was not normalized correctly.');
+          }
+
+          $badCases = array(
+              array('vlanid', '4095'),
+              array('storage', 'local;bad'),
+              array('ostype', 'not-a-real-os'),
+              array('balloon', '4096'),
+          );
+
+          foreach ($badCases as $case) {
+              $_POST = validQemuPost();
+              $_POST[$case[0]] = $case[1];
+              $failed = false;
+              try {
+                  pvewhmcs_validate_qemu_plan_input();
+              } catch (InvalidArgumentException $e) {
+                  $failed = true;
+              }
+              if (!$failed) {
+                  throw new RuntimeException('Invalid QEMU input was accepted: ' . $case[0]);
+              }
+          }
+
+          $_POST = array(
+              'title' => 'Secure LXC',
+              'cores' => '2',
+              'cpulimit' => '0',
+              'cpuunits' => '1024',
+              'memory' => '1024',
+              'swap' => '512',
+              'disk' => '20',
+              'diskio' => '0',
+              'storage' => 'local-lvm',
+              'bridge' => 'vmbr',
+              'vmbr' => '0',
+              'vlanid' => '100',
+              'netrate' => '0',
+              'bw' => '',
+              'ipv6' => 'dhcp',
+              'onboot' => '1',
+              'unpriv' => '1',
+          );
+          $lxc = pvewhmcs_validate_lxc_plan_input();
+          if ($lxc['vlanid'] !== 100 || $lxc['unpriv'] !== 1) {
+              throw new RuntimeException('Valid LXC plan was not normalized correctly.');
+          }
+          PHP
+
       - name: Execute ZRLE oversized-run regression
         shell: bash
         run: |
