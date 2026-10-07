@@ -52,6 +52,51 @@ function pvewhmcs_redact_log_value($value)
 }
 
 /**
+ * Mandatory wrapper for WHMCS module logging.
+ *
+ * All first-party module logging must pass through this function so secrets are
+ * recursively redacted even if a future caller accidentally supplies a raw
+ * request/response structure. Direct logModuleCall() use is blocked by CI.
+ */
+function pvewhmcs_secure_log_module_call(
+    $module,
+    $action,
+    $request,
+    $response = '',
+    $processedData = '',
+    array $replaceVars = array()
+) {
+    if (!function_exists('logModuleCall')) {
+        return;
+    }
+
+    $safeModule = is_string($module) ? $module : 'pvewhmcs';
+    $safeAction = is_string($action) ? $action : 'unknown';
+    $safeRequest = pvewhmcs_redact_log_value($request);
+    $safeResponse = pvewhmcs_redact_log_value($response);
+    $safeProcessedData = pvewhmcs_redact_log_value($processedData);
+
+    // Also redact explicitly supplied replacement values before handing them
+    // to WHMCS. This prevents an accidental secret from being persisted in the
+    // replacement list itself.
+    $safeReplaceVars = array();
+    foreach ($replaceVars as $value) {
+        if (is_scalar($value) || $value === null) {
+            $safeReplaceVars[] = (string) pvewhmcs_redact_log_value((string) $value);
+        }
+    }
+
+    logModuleCall(
+        $safeModule,
+        $safeAction,
+        $safeRequest,
+        $safeResponse,
+        $safeProcessedData,
+        $safeReplaceVars
+    );
+}
+
+/**
  * Produce a deliberately small, non-secret summary of a PVE/API response.
  */
 function pvewhmcs_safe_log_result($value)
