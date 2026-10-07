@@ -192,7 +192,7 @@ function pvewhmcs_upgrade($vars) {
 	    } catch (\Throwable $e) {
 	        // Debug logging (same style as ClientArea)
 			if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-				logModuleCall(
+				pvewhmcs_secure_log_module_call(
 					'pvewhmcs',
 					__FUNCTION__,
 					'Attempting v1.2.17 database upgrade failed.',
@@ -267,7 +267,7 @@ function pvewhmcs_addon_fetch_rrd($proxmox, $path, $timeframe, $ds) {
 	} catch (Exception $e) {
 		// RRD data unavailable - log if debug mode on
 		if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-			logModuleCall(
+			pvewhmcs_secure_log_module_call(
 				'pvewhmcs',
 				'pvewhmcs_addon_fetch_rrd',
 				'RRD fetch failed: ' . $path . ' (' . $ds . ', ' . $timeframe . ')',
@@ -473,7 +473,7 @@ function pvewhmcs_output($vars) {
 
 			// Debug logging (same style as ClientArea)
 			if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-				logModuleCall(
+				pvewhmcs_secure_log_module_call(
 					'pvewhmcs',
 					__FUNCTION__,
 					'CLUSTER RESOURCES [' . $serverlabel . ']:',
@@ -977,7 +977,7 @@ function pvewhmcs_output($vars) {
 
 	    // Optional debug logging
 	    if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-	        logModuleCall('pvewhmcs', 'ADMIN LOGS: /cluster/tasks', 'limit=' . $limit, pvewhmcs_safe_log_result($tasks));
+	        pvewhmcs_secure_log_module_call('pvewhmcs', 'ADMIN LOGS: /cluster/tasks', 'limit=' . $limit, pvewhmcs_safe_log_result($tasks));
 	    }
 
 	    if (!is_array($tasks) || empty($tasks)) {
