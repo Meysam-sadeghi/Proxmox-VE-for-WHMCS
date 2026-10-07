@@ -17,6 +17,8 @@
 - Parent/upstream: `The-Network-Crew/Proxmox-VE-for-WHMCS`
 - Historical source: `cybercoder/PRVE`
 - At the reviewed commit, this fork's `master` is **exactly the same commit/tree as upstream master**. No fork-specific source changes were present.
+- **Post-audit source change baseline:** source changes through commit `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8` were specifically reviewed for the new Proxmox VE 9+ client reinstall workflow and PVE API HTTP-response compatibility. Documentation commits after that baseline do not change runtime behavior.
+- New runtime file after the original audit: `modules/servers/pvewhmcs/reinstall.php`.
 
 ### Vendored noVNC integrity
 
@@ -38,14 +40,16 @@ Path: `modules/servers/pvewhmcs/novnc/`
 Read these files, in this order:
 
 1. `SYSTEM_MAP.md` — this document.
-2. `modules/servers/pvewhmcs/pvewhmcs.php` — provisioning/runtime/client actions.
-3. `modules/addons/pvewhmcs/pvewhmcs.php` — WHMCS admin addon UI/config/plans/IP pools/import.
-4. `modules/addons/pvewhmcs/proxmox.php` — Proxmox API transport/client.
-5. `modules/servers/pvewhmcs/novnc_router.php` — console ticket/cookie routing.
-6. `modules/addons/pvewhmcs/db.sql` — module data model.
-7. `modules/servers/pvewhmcs/clientarea.tpl` — client-facing VM UI.
-8. `README.md` — deployment requirements and expected PVE/WHMCS setup.
-9. `SECURITY.md` — upstream disclosure policy.
+2. `SECURITY_AUDIT.md` — authoritative security finding/remediation tracker.
+3. `modules/servers/pvewhmcs/pvewhmcs.php` — provisioning/runtime/client actions.
+4. `modules/servers/pvewhmcs/reinstall.php` — Proxmox VE 9+ client reinstall/rebuild workflow.
+5. `modules/addons/pvewhmcs/pvewhmcs.php` — WHMCS admin addon UI/config/plans/IP pools/import.
+6. `modules/addons/pvewhmcs/proxmox.php` — Proxmox API transport/client.
+7. `modules/servers/pvewhmcs/novnc_router.php` — console ticket/cookie routing.
+8. `modules/addons/pvewhmcs/db.sql` — module data model.
+9. `modules/servers/pvewhmcs/clientarea.tpl` — client-facing VM UI.
+10. `README.md` — deployment requirements and expected PVE/WHMCS setup.
+11. `SECURITY.md` — upstream disclosure policy.
 
 If HEAD differs from the reviewed commit, first compare the new HEAD against:
 `7ff41ccecde7e1d846860e3b24208129ee8fdd42`.
@@ -121,7 +125,8 @@ Path: `modules/addons/pvewhmcs/`
 
 Path: `modules/servers/pvewhmcs/`
 
-- `pvewhmcs.php` — **core service lifecycle/provisioning/client actions** (~1663 lines).
+- `pvewhmcs.php` — **core service lifecycle/provisioning/client actions**; loads the reinstall module and registers the `Reinstall OS` custom client action.
+- `reinstall.php` — **Proxmox VE 9+ destructive reinstall/rebuild workflow**, including allowlisted OS selection, ownership/CSRF/confirmation checks, locking, replacement-first cutover, rollback, password regeneration, and mapping update.
 - `clientarea.tpl` — client area UI for status/specs/statistics.
 - `novnc_router.php` — standalone console router/cookie setter.
 - `whmcs.json` — WHMCS module metadata.
@@ -174,8 +179,25 @@ Client/admin actions:
 - `pvewhmcs_vmStat()`
 - `pvewhmcs_noVNC()`
 - `pvewhmcs_SPICE()`
+- `pvewhmcs_Reinstall()` — loaded from `reinstall.php`; client-visible destructive rebuild action for PVE 9+.
 
 Helpers include VMID allocation, VM/node discovery, RRD fetch, netmask conversion and formatting.
+
+### B1. Reinstall module — `modules/servers/pvewhmcs/reinstall.php`
+
+Key behavior:
+
+- Requires an active WHMCS service owned by the current client and a matching `mod_pvewhmcs_vms` mapping.
+- Requires Proxmox VE major version 9+ via `/version`.
+- QEMU sources are allowlisted numeric `KVMTemplate` values and must resolve to real PVE templates containing Cloud-Init.
+- LXC sources are allowlisted `Template` volume IDs and must exist as `vztmpl` content on a cluster node.
+- Uses a one-time per-service session nonce, explicit destructive confirmation and a MySQL advisory lock.
+- Generates a replacement under a new VMID before stopping the old guest.
+- Reuses the service IP and plan-derived network/resource configuration.
+- Starts the replacement before atomically moving the WHMCS mapping.
+- If startup or pre-mapping cutover fails, removes the replacement and best-effort restarts the old guest.
+- Generates a new strong guest password and stores it with WHMCS `UpdateClientProduct`; passwords are not written to module logs by this workflow.
+- Deletes the old stopped guest only after the new guest is running and mapped.
 
 ### C. Proxmox API transport — `modules/addons/pvewhmcs/proxmox.php`
 
@@ -186,6 +208,7 @@ Responsibilities:
 - Login to `/api2/json/access/ticket`.
 - Retain PVE authentication ticket + CSRF token in memory.
 - Send GET/POST/PUT/DELETE requests.
+- Parse HTTP status/body using libcurl response metadata rather than assuming an `HTTP/1.1` status line, improving compatibility with PVE 9 / HTTP/2-capable transports.
 - Discover nodes/guests.
 - Wrapper operations for start/stop/shutdown/resume/suspend/clone/snapshot/version.
 
@@ -285,8 +308,38 @@ WHMCS service ID is resolved to `mod_pvewhmcs_vms`, then to PVE VMID/type/node.
 - **Suspend:** stop guest.
 - **Unsuspend:** start guest.
 - **Terminate:** identify mapped VM, guard against duplicate VMID ownership, stop if needed, delete from PVE, remove module mapping.
-- **Client actions:** start, reboot, graceful shutdown, hard stop, status/statistics.
+- **Client actions:** start, reboot, graceful shutdown, hard stop, status/statistics, noVNC, and Reinstall OS.
 - **Client Area:** decrypt WHMCS-stored PVE server password via WHMCS local API, connect to PVE, fetch config/resource status/RRD data, pass normalized data to `clientarea.tpl`.
+- **Reinstall:** validates client/service ownership and an allowlisted PVE template, creates a replacement under a new VMID, stops the old guest only after staging succeeds, starts the replacement with the same service IP/plan, atomically swaps the service mapping, stores the new password, then deletes the old guest. Pre-mapping failures roll back to the old guest.
+
+### Reinstall sequence
+
+```mermaid
+sequenceDiagram
+    participant C as WHMCS Client
+    participant R as pvewhmcs_Reinstall()
+    participant D as WHMCS DB
+    participant P as Proxmox VE 9 API
+
+    C->>R: Open Reinstall OS
+    R->>D: Validate service owner/status/mapping
+    R-->>C: Allowlisted OS selector + one-time nonce
+    C->>R: POST image + confirm + REINSTALL
+    R->>P: GET /version (require PVE 9+)
+    R->>P: Clone QEMU template OR create LXC under new VMID
+    P-->>R: UPID task completion
+    R->>P: Stop old guest
+    R->>P: Start replacement
+    alt start/cutover before mapping fails
+        R->>P: Remove replacement
+        R->>P: Restart old guest when previously running
+    else replacement running
+        R->>D: Transactionally switch service mapping/template
+        R->>D: Store new WHMCS service password
+        R->>P: Delete old stopped guest
+        R-->>C: Success + new password
+    end
+```
 
 ---
 
@@ -374,7 +427,8 @@ The only intentional remote check in addon code outside configured PVE communica
 
 When changing:
 
-- **Provisioning, templates, IP allocation:** inspect `modules/servers/pvewhmcs/pvewhmcs.php`, `db.sql`, and addon plan/IP forms.
+- **Provisioning, templates, IP allocation:** inspect `modules/servers/pvewhmcs/pvewhmcs.php`, `modules/servers/pvewhmcs/reinstall.php`, `db.sql`, and addon plan/IP forms.
+- **Reinstall/rebuild/client destructive actions:** inspect `reinstall.php`, the custom-button registration in `pvewhmcs.php`, WHMCS product `KVMTemplate`/`Template` field conventions, PVE task polling, rollback, service mapping and password persistence.
 - **PVE authentication/networking:** inspect `proxmox.php` and every `new PVE2_API(...)` caller.
 - **Client UI/XSS/escaping:** inspect `clientarea.tpl` plus variables assembled by `pvewhmcs_ClientArea()`.
 - **Admin UI/CSRF/XSS:** inspect `modules/addons/pvewhmcs/pvewhmcs.php`.
@@ -390,8 +444,8 @@ When this repository changes:
 
 1. Read this file.
 2. Get current HEAD SHA.
-3. If HEAD == `7ff41ccecde7e1d846860e3b24208129ee8fdd42`, use this map as the reviewed baseline.
-4. If HEAD differs, compare commits and inspect changed files only first.
+3. The original full-repository security baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`.
+4. Post-audit runtime changes for Reinstall/PVE9 transport were reviewed through `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8`. If current HEAD differs from that source baseline, compare from `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8` first; then inspect changed files and callers.
 5. Re-evaluate trust boundaries for any new endpoint, hook, API call, database table, secret, or client-visible value.
 6. If noVNC version changes, re-run a vendor hash comparison against the exact upstream release/tag.
 7. Update this document's snapshot, flows, file/function map, data model, and security hotspots in the same PR/commit as architectural changes.
