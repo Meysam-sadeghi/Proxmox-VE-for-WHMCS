@@ -392,7 +392,11 @@ function pvewhmcs_output($vars) {
 
 	if (isset($_POST['plan_update_qemu']))
 	{
-		update_qemu_plan() ;
+		$planId = isset($_POST['plan_id']) ? (int) $_POST['plan_id'] : 0;
+		if ($planId <= 0) {
+			throw new InvalidArgumentException('Invalid QEMU plan target.');
+		}
+		update_qemu_plan($planId);
 	}
 
 	if (isset($_POST['plan_save_lxc']))
@@ -402,7 +406,11 @@ function pvewhmcs_output($vars) {
 
 	if (isset($_POST['plan_update_lxc']))
 	{
-		update_lxc_plan() ;
+		$planId = isset($_POST['plan_id']) ? (int) $_POST['plan_id'] : 0;
+		if ($planId <= 0) {
+			throw new InvalidArgumentException('Invalid LXC plan target.');
+		}
+		update_lxc_plan($planId);
 	}
 
 	if (isset($_POST['pvewhmcs_delete_action'])) {
@@ -1537,14 +1545,20 @@ function qemu_plan_add() {
 
 // MODULE FORM: Edit a QEMU Plan
 function qemu_plan_edit($id) {
-	$plan= Capsule::table('mod_pvewhmcs_plans')->where('id', '=', $id)->get()[0];
-	if (empty($plan)) {
-		echo 'Plan Not found' ;
-		return false ;
+	$id = (int) $id;
+	if ($id <= 0) {
+		echo 'Plan Not found';
+		return false;
+	}
+	$plan = Capsule::table('mod_pvewhmcs_plans')->where('id', '=', $id)->first();
+	if (!$plan) {
+		echo 'Plan Not found';
+		return false;
 	}
 	echo '
 	<form method="post">
 	' . pvewhmcs_admin_csrf_input() . '
+	<input type="hidden" name="plan_id" value="' . (int) $plan->id . '">
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Plan Title</td>
@@ -1993,14 +2007,20 @@ function lxc_plan_add() {
 
 // MODULE FORM: Edit an LXC Plan
 function lxc_plan_edit($id) {
-	$plan= Capsule::table('mod_pvewhmcs_plans')->where('id', '=', $id)->get()[0];
-	if (empty($plan)) {
-		echo 'Plan Not found' ;
-		return false ;
+	$id = (int) $id;
+	if ($id <= 0) {
+		echo 'Plan Not found';
+		return false;
+	}
+	$plan = Capsule::table('mod_pvewhmcs_plans')->where('id', '=', $id)->first();
+	if (!$plan) {
+		echo 'Plan Not found';
+		return false;
 	}
 	echo '
 	<form method="post">
 	' . pvewhmcs_admin_csrf_input() . '
+	<input type="hidden" name="plan_id" value="' . (int) $plan->id . '">
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Plan Title</td>
@@ -2182,9 +2202,13 @@ function save_qemu_plan() {
 }
 
 // MODULE FORM ACTION: Update QEMU Plan
-function update_qemu_plan() {
+function update_qemu_plan($id) {
+	$id = (int) $id;
+	if ($id <= 0) {
+		throw new InvalidArgumentException('Invalid QEMU plan target.');
+	}
 	Capsule::table('mod_pvewhmcs_plans')
-	->where('id', $_GET['id'])
+	->where('id', '=', $id)
 	->update(
 		[
 			'title' => $_POST['title'],
@@ -2269,9 +2293,13 @@ function save_lxc_plan() {
 }
 
 // MODULE FORM ACTION: Update LXC Plan
-function update_lxc_plan() {
+function update_lxc_plan($id) {
+	$id = (int) $id;
+	if ($id <= 0) {
+		throw new InvalidArgumentException('Invalid LXC plan target.');
+	}
 	Capsule::table('mod_pvewhmcs_plans')
-	->where('id', $_GET['id'])
+	->where('id', '=', $id)
 	->update(
 		[
 			'title' => $_POST['title'],
