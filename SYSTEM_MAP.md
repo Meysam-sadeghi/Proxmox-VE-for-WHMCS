@@ -428,6 +428,7 @@ Key invariants that future changes must preserve:
 17. **Provisioning allocation is serialized at critical boundaries.** Keep per-service and per-pool locks plus the short VMID allocation lock; do not separate VMID selection from PVE create/clone submission.
 18. **Client-visible errors are generic.** Keep VMID/node/API/exception diagnostics server-side through redacted logging; never render raw PVE failures to customers.
 19. **Power actions revalidate service ownership before PVE access.** Keep `tblhosting.userid` and `mod_pvewhmcs_vms.user_id` aligned with module `userid`; never authorize Start/Reboot/Shutdown/Stop from service ID alone.
+20. **Client Area data reads revalidate ownership before PVE access.** A failed ownership check renders only a generic error and no guest config/status/RRD data.
 
 
 ### Negative findings from the static review
