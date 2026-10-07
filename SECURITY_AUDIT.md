@@ -266,17 +266,17 @@ Redesign console bootstrap so raw PVE/VNC tickets are not exposed in browser-vis
 
 ### Remediation applied
 
-- The customer-facing console URL carries only a random one-time session nonce.
-- PVE authentication ticket, VNC ticket, destination host, port and path are generated/resolved server-side after authorization.
-- Console endpoints send `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
-- A second short-lived one-time nonce transfers authorized runtime state to the minimal noVNC page.
-- Outstanding bootstrap/runtime nonce pools are pruned and capped to prevent client-session storage growth.
-- The final noVNC handoff revalidates Active service ownership, guest VMID/type mapping, and assigned PVE host/port before exposing runtime state.
+- Console launch no longer places even the opaque bootstrap nonce in the URL; the one-time nonce is submitted only in a POST body.
+- PVE authentication ticket, VNC ticket, destination host, port, node and VMID are generated/resolved server-side after authorization.
+- `novnc_router.php` is POST-only and rejects query-string console state.
+- The obsolete second-stage `novnc_client.php` endpoint and its second runtime nonce were removed; authorization, ticket creation and noVNC rendering happen in one request.
+- Console responses send `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, COOP/CORP hardening and a restrictive CSP pinned to the resolved PVE WSS origin.
+- The router revalidates Active service ownership, guest VMID/type mapping, assigned PVE server and host/port after obtaining the PVE/VNC tickets and immediately before rendering the console.
 
 ### Fix commit / verification
 
 - Commits: `6febca34b884971c1becfaf5c275d30deda727bb`, `10523475516b4417755def832fbbd82573577ebb`, `8fb026d4fb88cca520bb347d79ae737c8e6a3e22`
-- Verification: customer/browser page URLs and WHMCS access-log query strings contain no PVE/VNC ticket. The PVE VNC proxy protocol still necessarily uses its short-lived VNC ticket inside the direct PVE WebSocket connection.
+- Verification: static and CI regression checks enforce a POST-only bootstrap with no console nonce/ticket/destination data in URL query strings. The PVE VNC proxy protocol still necessarily uses its short-lived VNC ticket inside the direct PVE WebSocket connection. Live browser/WSS verification remains required before marking VERIFIED.
 
 ## SEC-005 — noVNC router is standalone and not bound to WHMCS session/service authorization
 
@@ -311,16 +311,16 @@ Cross-client and cross-service replay tests fail safely.
 
 ### Remediation applied
 
-- `novnc_router.php` boots WHMCS and requires an authenticated client session.
-- It consumes the first-stage nonce before privileged work.
-- Service ownership, Active status, module guest mapping and user ID are revalidated from the WHMCS database.
-- The nonce is client/service bound, expires after about one minute, and outstanding nonce pools are bounded.
-- `novnc_client.php` performs a second authorization check immediately before rendering: client/service ownership, Active state, VMID/type mapping and current assigned PVE host/port must still match the server-side runtime session.
+- `novnc_router.php` boots WHMCS, accepts POST only, and requires an authenticated client session.
+- The client/service-bound bootstrap nonce is consumed before privileged work, expires after about one minute, and outstanding nonce pools are bounded.
+- Service ownership, Active status, module guest mapping, user ID and assigned PVE server are revalidated from the WHMCS database before ticket creation.
+- The same request performs a second authorization-state check after PVE/VNC ticket creation and immediately before rendering; service status, VMID/type, server ID and host/port must still match.
+- Browser-supplied host/port/path/node/VMID/ticket values are not accepted.
 
 ### Fix commit / verification
 
 - Commit: `10523475516b4417755def832fbbd82573577ebb`
-- Verification: static authorization flow reviewed. Perform cross-client, expired-nonce and replay tests in staging before marking VERIFIED.
+- Verification: static authorization flow and CI invariants reviewed; the router is POST-only and single-stage. Perform cross-client, expired-nonce, replay and service-reassignment tests in staging before marking VERIFIED.
 
 ## SEC-006 — Broad console authentication cookie with `HttpOnly=false`
 

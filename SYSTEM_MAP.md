@@ -225,9 +225,9 @@ Files:
 - `modules/servers/pvewhmcs/novnc_router.php` — authenticated server-side console bootstrap.
 - `modules/servers/pvewhmcs/novnc_client.php` — minimal one-time noVNC browser page.
 
-The customer-facing URL contains only a random one-time nonce. The router boots WHMCS, revalidates the logged-in client, Active service ownership and service-to-guest mapping, resolves the assigned PVE server and guest node server-side, then obtains restricted `vnc@pve` tickets. Host/port/path/tickets are not accepted from browser input.
+The customer-facing service action generates a random one-time nonce but submits it only in a POST body to `novnc_router.php`; no console nonce, PVE/VNC ticket, host, port, path, node or VMID is placed in the public URL. The router boots WHMCS, revalidates the logged-in client, Active service ownership and service-to-guest mapping, resolves the assigned PVE server and guest node server-side, then obtains restricted `vnc@pve` tickets.
 
-The router creates a short-lived `Secure`, `HttpOnly`, `SameSite=Strict`, `/api2/json/`-scoped PVE cookie and a second one-time runtime nonce. The client page consumes that nonce, applies a CSP whose `connect-src` is the single resolved PVE WSS origin, and opens the direct PVE WebSocket. SPICE is disabled in this module because the old route shared the insecure ticket-in-URL design.
+The router revalidates authorization-sensitive service/guest/server state after ticket creation, creates a short-lived `Secure`, `HttpOnly`, `SameSite=Strict`, `/api2/json/`-scoped PVE cookie, applies a CSP whose `connect-src` is the single resolved PVE WSS origin, and renders noVNC directly in the same request. The former second-stage `novnc_client.php` endpoint and runtime nonce were removed. SPICE remains disabled because its old route shared the insecure ticket-in-URL design.
 
 ---
 
@@ -363,24 +363,22 @@ sequenceDiagram
     participant R as novnc_router.php
     participant D as WHMCS DB/Session
     participant P as Proxmox VE
-    participant N as novnc_client.php
 
     C->>M: Invoke noVNC action
     M->>D: Validate client/service mapping
-    M-->>C: URL with opaque 60s one-time nonce
-    C->>R: GET ?session=<nonce>
-    R->>D: Consume nonce + revalidate login/ownership
-    R->>D: Resolve assigned PVE server
+    M-->>C: POST form + opaque 60s one-time nonce
+    C->>R: POST session=<nonce>
+    R->>D: Consume nonce + validate login/ownership
+    R->>D: Resolve assigned PVE server + guest mapping
     R->>P: Authenticate provisioning token; resolve guest node
     R->>P: Authenticate restricted vnc@pve; POST /vncproxy
     P-->>R: short-lived PVE/VNC proxy tickets
-    R-->>C: HttpOnly PVE cookie + 303 to second opaque nonce
-    C->>N: GET novnc_client.php?session=<nonce>
-    N->>D: Consume runtime nonce
-    N->>P: WSS only to server-side resolved PVE endpoint
+    R->>D: Revalidate Active service, VMID/type, server + host/port
+    R-->>C: HttpOnly PVE cookie + CSP-pinned noVNC page
+    C->>P: WSS only to server-side resolved PVE endpoint
 ```
 
-Security properties: both nonces are client/service-bound, expire quickly and are single-use; public page URLs contain no PVE/VNC ticket; destination values come only from WHMCS/PVE trusted state; `vnc@pve` remains limited to `VM.Console`.
+Security properties: the bootstrap nonce is client/service-bound, short-lived and single-use; it is submitted only in the POST body and never appears in the browser URL. Public URLs contain no PVE/VNC ticket or destination data. Authorization-sensitive state is checked both before and after ticket creation; `vnc@pve` remains limited to `VM.Console`.
 
 ---
 
@@ -411,15 +409,15 @@ Key invariants that future changes must preserve:
 1. **Verified PVE TLS is mandatory and fail-closed.** The client rejects attempts to disable certificate validation; never reintroduce `CURLOPT_SSL_VERIFYPEER=false`, `verify_ssl=false`, or hostname-verification bypass.
 2. **Management authentication is API-token-only.** Provisioning, lifecycle, reinstall, addon monitoring and console guest lookup require a dedicated PVE API token; ordinary password login and all root-backed credentials are rejected. The only password-based PVE login is the separate restricted `vnc@pve` console identity.
 3. **No secrets or raw PVE payloads in logs/Smarty context.** All first-party WHMCS logging must pass through `pvewhmcs_secure_log_module_call()`; direct `logModuleCall()` use is CI-blocked. Never log raw `$params`, credentials, tickets, cluster resource/task dumps, or unredacted exception/API payloads. Use shared redaction + bounded response summaries.
-4. **Console URLs carry opaque nonces only.** PVE/VNC tickets, host, port, node and WebSocket path are server-side state.
-5. **Console authorization is server-side and repeated at handoff.** Revalidate authenticated client, Active service, guest mapping and assigned server before obtaining a PVE ticket and again before rendering the one-time noVNC client. Bootstrap/runtime nonce pools are short-lived, single-use and capped.
+4. **Console URLs carry no console credentials or nonce.** The bootstrap nonce is POST-body-only; PVE/VNC tickets, host, port, node, VMID and WebSocket path are server-side state.
+5. **Console authorization is server-side and repeated in one request.** Revalidate authenticated client, Active service, guest mapping and assigned server before obtaining PVE/VNC tickets and again immediately before rendering noVNC. Bootstrap nonces are short-lived, single-use and capped.
 6. **PVE console cookie is short-lived and non-scriptable.** Keep `Secure`, `HttpOnly`, `SameSite=Strict`, short expiry and narrow path.
 7. **Addon mutations are POST + WHMCS CSRF token only.** Mutation targets must come from validated POST fields, never query-string IDs; do not add state-changing GET routes.
 8. **Dynamic admin/client output is contextually escaped and CI-guarded.** Bare Smarty interpolation in client templates and direct rendering of historically vulnerable stored admin values must fail security regression checks.
 9. **`vnc_secret` is WHMCS-encrypted, integrity-checked, stored in non-truncating TEXT storage, and never rendered back to HTML.** Legacy plaintext migration is transactional and verified after persistence.
 10. **CIDR import is bounded to 4096 addresses and fails closed before subnet iteration.** A second row-count guard and bounded DB batches protect against helper regressions.
 11. **noVNC ZRLE guard is a deliberate local vendor patch** until an upstream release includes equivalent protection; CI behaviorally verifies oversized runs are rejected before any pixel-write loop starts.
-12. **Browser cannot choose the noVNC destination.** The only accepted console query input is an opaque session nonce; host/port/path/node/VMID/tickets remain server-side and CSP `connect-src` is CI-pinned to the resolved PVE WSS origin.
+12. **Browser cannot choose the noVNC destination.** The router accepts no console query input; only a one-time POST-body nonce is accepted. host/port/path/node/VMID/tickets remain server-side and CSP `connect-src` is CI-pinned to the resolved PVE WSS origin.
 13. **Legacy custom crypto must stay removed.** CI rejects the removed password helper and SHA1/MD5/custom-PRNG credential patterns in first-party PHP.
 14. **Remote update checks remain bounded and format-validated.**
 15. **Security regression CI** must remain green for every module change.

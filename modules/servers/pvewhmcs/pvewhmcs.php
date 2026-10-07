@@ -1150,13 +1150,14 @@ function pvewhmcs_noVNC($params) {
 	);
 
 	$whmcsBase = rtrim((string) $CONFIG['SystemURL'], '/');
-	$url = $whmcsBase . '/modules/servers/pvewhmcs/novnc_router.php?session=' . rawurlencode($nonce);
+	$url = $whmcsBase . '/modules/servers/pvewhmcs/novnc_router.php';
 
 	return '<div class="alert alert-success" style="text-align:center;">'
 		. '<strong>Secure console session prepared.</strong><br>'
-		. '<a href="' . htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" target="_blank" rel="noopener noreferrer">'
-		. 'Open noVNC Console'
-		. '</a></div>';
+		. '<form method="post" action="' . htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin-top:8px;">'
+		. '<input type="hidden" name="session" value="' . htmlspecialchars($nonce, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">'
+		. '<button type="submit" class="btn btn-primary">Open noVNC Console</button>'
+		. '</form></div>';
 }
 
 // VNC: Console access to VM/CT via SPICE
