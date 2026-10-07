@@ -315,28 +315,30 @@ jobs:
           import re
           from pathlib import Path
 
-          path = Path("modules/addons/pvewhmcs/pvewhmcs.php")
-          source = path.read_text(encoding="utf-8")
+          source = Path("modules/addons/pvewhmcs/pvewhmcs.php").read_text(encoding="utf-8")
 
-          # Every HTML POST form emitted by the addon must contain the helper
-          # that injects the WHMCS admin CSRF token.
-          forms = re.findall(
-              r'<form\\b[^>]*method=["\\\']post["\\\'][^>]*>.*?</form>',
+          # Every emitted POST form must carry the module's WHMCS admin token
+          # helper somewhere before that form's closing tag.
+          form_starts = list(re.finditer(
+              r'<form\b[^>]*method=["\']post["\'][^>]*>',
               source,
-              flags=re.IGNORECASE | re.DOTALL,
-          )
-          if len(forms) < 9:
-              raise SystemExit(f"expected at least 9 addon POST forms, found {len(forms)}")
+              flags=re.IGNORECASE,
+          ))
+          if len(form_starts) < 9:
+              raise SystemExit(f"expected at least 9 addon POST forms, found {len(form_starts)}")
 
-          missing = [
-              index + 1
-              for index, form in enumerate(forms)
-              if "pvewhmcs_admin_csrf_input()" not in form
-          ]
+          missing = []
+          for index, match in enumerate(form_starts, start=1):
+              close = source.find("</form>", match.end())
+              if close < 0:
+                  raise SystemExit(f"POST form {index} has no closing form tag")
+              block = source[match.start():close]
+              if "pvewhmcs_admin_csrf_input()" not in block:
+                  missing.append(index)
+
           if missing:
               raise SystemExit(f"POST forms missing CSRF helper: {missing}")
 
-          # pvewhmcs_output must fail closed for every POST before dispatch.
           required = [
               "$_SERVER['REQUEST_METHOD'] === 'POST'",
               "function_exists('check_token')",
@@ -346,9 +348,6 @@ jobs:
               if token not in source:
                   raise SystemExit(f"missing global POST CSRF guard: {token}")
 
-          # Mutation functions must never choose their target from the query
-          # string. Read-only navigation may use GET, but writes must use
-          # validated arguments/POST state.
           mutation_functions = [
               "import_guest",
               "save_config",
@@ -363,40 +362,27 @@ jobs:
               "removeip",
           ]
 
-          def function_body(name: str) -> str:
-              match = re.search(rf'function\\s+{re.escape(name)}\\s*\\([^)]*\\)\\s*\\{{', source)
-              if not match:
-                  raise SystemExit(f"mutation function not found: {name}")
-              start = match.end()
-              depth = 1
-              i = start
-              in_single = in_double = escaped = False
-              while i < len(source):
-                  ch = source[i]
-                  if escaped:
-                      escaped = False
-                  elif ch == "\\\\":
-                      escaped = True
-                  elif ch == "'" and not in_double:
-                      in_single = not in_single
-                  elif ch == '"' and not in_single:
-                      in_double = not in_double
-                  elif not in_single and not in_double:
-                      if ch == "{":
-                          depth += 1
-                      elif ch == "}":
-                          depth -= 1
-                          if depth == 0:
-                              return source[start:i]
-                  i += 1
-              raise SystemExit(f"unterminated function: {name}")
+          function_starts = list(re.finditer(
+              r'(?m)^\s*function\s+([A-Za-z0-9_]+)\s*\(',
+              source,
+          ))
+          ranges = {}
+          for index, match in enumerate(function_starts):
+              name = match.group(1)
+              end = function_starts[index + 1].start() if index + 1 < len(function_starts) else len(source)
+              ranges[name] = source[match.start():end]
 
           for name in mutation_functions:
-              body = function_body(name)
+              body = ranges.get(name)
+              if body is None:
+                  raise SystemExit(f"mutation function not found: {name}")
               if "$_GET[" in body:
                   raise SystemExit(f"mutation function {name} reads target/state from $_GET")
 
-          print(f"validated {len(forms)} CSRF-protected POST forms and {len(mutation_functions)} mutation functions")
+          print(
+              f"validated {len(form_starts)} CSRF-protected POST forms "
+              f"and {len(mutation_functions)} GET-free mutation functions"
+          )
           PY
 
       - name: Keep client and stored admin output escaped
