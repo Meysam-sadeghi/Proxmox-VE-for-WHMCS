@@ -105,6 +105,7 @@ A compromise across boundary #3 is especially serious because the documented dep
 - `version` — current module version.
 - `LICENSE`, `CONTRIBUTORS.md`
 - `.github/ISSUE_TEMPLATE/*` — issue templates.
+- `.github/workflows/php-lint.yml` — PHP syntax validation for pushes/PRs that touch PHP sources.
 - `_docs/*` — historical/manual/update documentation.
 - `_images/*` — documentation screenshots/static images.
 
