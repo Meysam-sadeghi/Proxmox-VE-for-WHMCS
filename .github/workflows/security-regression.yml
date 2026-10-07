@@ -147,7 +147,14 @@ jobs:
           ! grep -Fq "\$_GET['path']" modules/servers/pvewhmcs/novnc_router.php
           ! grep -Fq "\$_GET['pveticket']" modules/servers/pvewhmcs/novnc_router.php
           ! grep -Fq "\$_GET['vncticket']" modules/servers/pvewhmcs/novnc_router.php
+          ! grep -Fq "\$_GET['host']" modules/servers/pvewhmcs/novnc_client.php
+          ! grep -Fq "\$_GET['port']" modules/servers/pvewhmcs/novnc_client.php
+          ! grep -Fq "\$_GET['vncticket']" modules/servers/pvewhmcs/novnc_client.php
           grep -Fq "where('userid', '=', \$clientId)" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "where('userid', '=', \$sessionClientId)" modules/servers/pvewhmcs/novnc_client.php
+          grep -Fq "Console server assignment changed" modules/servers/pvewhmcs/novnc_client.php
+          grep -Fq "while (count(\$_SESSION['pvewhmcs_console']) >= 5)" modules/servers/pvewhmcs/pvewhmcs.php
+          grep -Fq "while (count(\$_SESSION['pvewhmcs_console_runtime']) >= 5)" modules/servers/pvewhmcs/novnc_router.php
           grep -Fq "Referrer-Policy: no-referrer" modules/servers/pvewhmcs/novnc_router.php
 
       - name: Keep addon deletes POST-only
