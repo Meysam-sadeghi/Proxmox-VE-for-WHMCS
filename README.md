@@ -339,7 +339,7 @@ This workflow uses the Proxmox VE REST API under `/api2/json` and verifies at ru
 When upgrading an existing installation:
 
 1. **Replace root credentials before deploying the code.** Create the dedicated PVE API token described above and update every WHMCS Proxmox Server entry.
-2. **Use a certificate-valid PVE hostname.** The module now verifies TLS by default; self-signed/untrusted or hostname-mismatched certificates will fail instead of being silently accepted.
+2. **Use a certificate-valid PVE hostname.** TLS verification is mandatory and cannot be disabled; self-signed/untrusted or hostname-mismatched certificates fail closed. Install a trusted certificate/CA instead of bypassing verification.
 3. **Open the addon once after upgrade.** This automatically migrates any legacy plaintext `vnc_secret` to WHMCS-encrypted storage. Confirm the database value begins with `enc:`, then rotate the historical `vnc@pve` password in Proxmox and save the new secret once.
 4. **Purge historical WHMCS Module Log entries** created before this hardening release if Debug Mode was ever enabled. Older versions could log customer/root or PVE credentials. Rotate any PVE/customer credentials that may have appeared there.
 5. **Test on a non-production service:** create, start, reboot, stop, suspend/unsuspend, noVNC, reinstall and terminate.

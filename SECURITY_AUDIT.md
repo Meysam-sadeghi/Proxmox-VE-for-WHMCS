@@ -114,7 +114,7 @@ A man-in-the-middle on the WHMCS↔PVE path can potentially impersonate the PVE 
 
 ### Remediation applied
 
-- PVE TLS verification now defaults to enabled.
+- PVE TLS verification now defaults to enabled and explicit attempts to pass `verify_ssl=false` are rejected fail-closed.
 - Login and subsequent API calls use peer verification and hostname verification mode 2.
 - WHMCS server hostname is preferred over raw IP for certificate validation in provisioning, addon and reinstall paths.
 - Existing transport timeouts remain enabled.

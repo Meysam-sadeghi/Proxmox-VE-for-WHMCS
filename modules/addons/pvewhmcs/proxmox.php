@@ -72,9 +72,14 @@ class PVE2_API {
 		if (!filter_var($port, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 65535]])) {
 			throw new PVE2_Exception("PVE2 API: Port must be an integer between 1 and 65535.", 6);
 		}
-		// Check that verify_ssl is boolean.
-		if (!is_bool($verify_ssl)) {
-			throw new PVE2_Exception("PVE2 API: verify_ssl must be boolean.", 7);
+		// SECURITY: TLS verification is mandatory in production. Keep the
+		// parameter for backwards-compatible constructor signatures, but fail
+		// closed if a caller attempts to disable certificate validation.
+		if ($verify_ssl !== true) {
+			throw new PVE2_Exception(
+				"PVE2 API: TLS certificate verification cannot be disabled. Configure a trusted certificate/CA for the Proxmox hostname.",
+				7
+			);
 		}
 
 		$this->hostname   = $hostname;
@@ -177,7 +182,7 @@ class PVE2_API {
 			// Just to be safe, set this to null again.
 			$this->login_ticket_timestamp = null;
 			if ($login_request_info['ssl_verify_result'] == 1) {
-				throw new PVE2_Exception("PVE2 API: Invalid SSL cert on {$this->hostname} - check that the hostname is correct, and that it appears in the server certificate's SAN list. Alternatively set the verify_ssl flag to false if you are using internal self-signed certs (ensure you are aware of the security risks before doing so).", 4);
+				throw new PVE2_Exception("PVE2 API: Invalid SSL certificate for {$this->hostname}. Configure a trusted certificate/CA and ensure the hostname appears in the certificate SAN list.", 4);
 			}
 			return false;
 		} else {

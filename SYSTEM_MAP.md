@@ -408,7 +408,7 @@ The authoritative item-by-item tracker is `SECURITY_AUDIT.md`. Source-level reme
 
 Key invariants that future changes must preserve:
 
-1. **Verified PVE TLS is default.** Never reintroduce `CURLOPT_SSL_VERIFYPEER=false` / hostname verification bypass.
+1. **Verified PVE TLS is mandatory and fail-closed.** The client rejects attempts to disable certificate validation; never reintroduce `CURLOPT_SSL_VERIFYPEER=false`, `verify_ssl=false`, or hostname-verification bypass.
 2. **No root-backed API credentials.** Provisioning must use a dedicated PVE identity/token; `root@pam` and root-backed tokens are rejected.
 3. **No secrets in module logs or Smarty context.** Never log raw `$params`, passwords, API-token secrets, PVE tickets or VNC tickets.
 4. **Console URLs carry opaque nonces only.** PVE/VNC tickets, host, port, node and WebSocket path are server-side state.
