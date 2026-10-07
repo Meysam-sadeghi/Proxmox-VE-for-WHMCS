@@ -955,6 +955,45 @@ If another routing/session bug ever allowed a manipulated service context to rea
 
 ---
 
+## SEC-021 — Client Area data retrieval relied on dispatch-layer service scoping
+
+**Severity:** HIGH / MEDIUM  
+**Status:** FIXED - NEEDS VERIFICATION  
+**Category:** CWE-862 Missing Authorization / information disclosure  
+**Primary files:** `modules/servers/pvewhmcs/pvewhmcs.php`, `modules/servers/pvewhmcs/clientarea.tpl`
+
+### Evidence
+
+The primary Client Area renderer loaded the module guest and WHMCS service directly from `serviceid`, then queried PVE for guest configuration, cluster resources and RRD data. It relied on WHMCS to provide a correctly scoped service context instead of independently revalidating the service owner and guest mapping.
+
+### Security impact
+
+If a routing/context weakness elsewhere ever supplied another service ID to this entry point, backend VM configuration/status/network/statistics data could be queried before an explicit module-level ownership check.
+
+### Remediation applied
+
+- Client Area now calls `pvewhmcs_authorize_service_action()` before decrypting PVE credentials or creating a PVE API client.
+- It reuses the already-authorized WHMCS service and module guest mapping.
+- Authorization failure is securely/redacted logged server-side.
+- Failure returns only a generic `client_error` and empty VM/status/statistics structures.
+- `clientarea.tpl` renders the escaped generic error and does not render guest details when `client_error` exists.
+- CI structurally requires authorization to occur before `new PVE2_API` in the Client Area entry point and requires the template error guard.
+
+### Acceptance criteria
+
+- Rightful service owner can load normal guest details.
+- Cross-user/mismatched service context cannot initiate PVE data retrieval.
+- Authorization failure renders no VM config, VMID, node, networking or statistics.
+- Error output remains escaped and generic.
+- Authorization executes before credential use/PVE connection.
+
+### Fix commit / verification
+
+- Commit: pending merge of the SEC-021 hardening branch.
+- Verification: PHP Syntax Check and Security Regression CI must pass. Staging should confirm normal Client Area rendering for the rightful client and generic denial for a deliberately mismatched test context.
+
+---
+
 # Additional hardening observations
 
 These are not currently ranked above the primary findings but should be considered during refactoring:

@@ -281,6 +281,11 @@
 }
 </style>
 
+{if $client_error}
+<div class="alert alert-danger">
+	{$client_error|escape:'html':'UTF-8'}
+</div>
+{else}
 <div class="pve-client-area">
 	{* Header Panel with VM Type, Status, and Gauges *}
 	<div class="pve-header-panel">
@@ -501,3 +506,4 @@
 	</div>
 	{/if}
 </div>
+{/if}
