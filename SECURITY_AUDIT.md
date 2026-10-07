@@ -3,7 +3,7 @@
 > **Repository:** `Meysam-sadeghi/Proxmox-VE-for-WHMCS`  
 > **Audit date:** 2026-10-07  
 > **Original audit baseline:** `7ff41ccecde7e1d846860e3b24208129ee8fdd42`  
-> **Security-hardened source baseline:** `336a81e477a22ee81514635e8f51069fe78eea93`  
+> **Security-hardened source baseline:** `412821098cccd89d8d25222b1c61d6566b7fe640`  
 > **Module version:** 1.3.6  
 > **Companion architecture map:** `SYSTEM_MAP.md`
 
@@ -11,7 +11,7 @@
 
 This file is the authoritative security-review handoff for future remediation work.
 
-**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; the hardened baseline now includes SEC-001 through SEC-021, with SEC-021 merged at `336a81e477a22ee81514635e8f51069fe78eea93`. For future work, compare the current HEAD against `336a81e477a22ee81514635e8f51069fe78eea93` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
+**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; the hardened baseline now includes SEC-001 through SEC-023, with the latest source hardening merged at `412821098cccd89d8d25222b1c61d6566b7fe640`. For future work, compare the current HEAD against `412821098cccd89d8d25222b1c61d6566b7fe640` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
 
 When fixing an item:
 
@@ -909,7 +909,7 @@ Internal VM/node identifiers, backend error text and PVE response details can re
 
 ### Fix commit / verification
 
-- Commit: `eeeb156e117146d6f51b27f9feacdd3d1dbb71f9`
+- Commits: `eeeb156e117146d6f51b27f9feacdd3d1dbb71f9`, follow-up `7135ace7e9c420f34711ab5034a6812e9f278efd`
 - Verification: PHP Syntax Check and Security Regression CI must pass. Staging should exercise failed power actions, a forced Reinstall failure, and forced Client Area PVE/node failures and confirm only generic customer messages are rendered.
 
 ---
@@ -993,7 +993,7 @@ If a routing/context weakness elsewhere ever supplied another service ID to this
 
 ### Fix commit / verification
 
-- Commit: `336a81e477a22ee81514635e8f51069fe78eea93`
+- Commits: `336a81e477a22ee81514635e8f51069fe78eea93`, error-boundary follow-up `7135ace7e9c420f34711ab5034a6812e9f278efd`
 - Verification: PHP Syntax Check and Security Regression CI must pass. Staging should confirm normal Client Area rendering for the rightful client and generic denial for a deliberately mismatched test context.
 
 ---
@@ -1093,8 +1093,8 @@ Without an explicit module-level CSRF boundary, a state-changing custom action d
 
 ### Fix commit / verification
 
-- Commit: pending merge
-- Verification: Security Regression CI behaviorally requires POST and confirms `check_token()` is invoked. Live WHMCS Client Area smoke testing is still required before marking VERIFIED.
+- Commit: `412821098cccd89d8d25222b1c61d6566b7fe640`
+- Verification: PHP Syntax Check and Security Regression Checks passed. The regression suite behaviorally requires POST and confirms `check_token()` is invoked. Live WHMCS Client Area smoke testing is still required before marking VERIFIED.
 
 ---
 
