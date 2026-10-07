@@ -3,7 +3,7 @@
 > **Repository:** `Meysam-sadeghi/Proxmox-VE-for-WHMCS`  
 > **Audit date:** 2026-10-07  
 > **Original audit baseline:** `7ff41ccecde7e1d846860e3b24208129ee8fdd42`  
-> **Security-hardened source baseline:** `91b2abb356f53ab8722a82b1580f54534e1da2ee`  
+> **Security-hardened source baseline:** `4c7a330e5eca3dbe12e2cc1bccf4b0276b35e1de`  
 > **Module version:** 1.3.6  
 > **Companion architecture map:** `SYSTEM_MAP.md`
 
@@ -11,7 +11,7 @@
 
 This file is the authoritative security-review handoff for future remediation work.
 
-**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; the hardened baseline now includes SEC-001 through SEC-017, with SEC-017 merged at `91b2abb356f53ab8722a82b1580f54534e1da2ee`. For future work, compare the current HEAD against `91b2abb356f53ab8722a82b1580f54534e1da2ee` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
+**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; the hardened baseline now includes SEC-001 through SEC-018, with SEC-018 merged at `4c7a330e5eca3dbe12e2cc1bccf4b0276b35e1de`. For future work, compare the current HEAD against `4c7a330e5eca3dbe12e2cc1bccf4b0276b35e1de` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
 
 When fixing an item:
 
@@ -866,7 +866,7 @@ Concurrent orders could collide on IP or VMID allocation, producing failed provi
 
 ### Fix commit / verification
 
-- Commit: pending merge of the SEC-018 hardening branch.
+- Commit: `4c7a330e5eca3dbe12e2cc1bccf4b0276b35e1de`
 - Verification: PHP Syntax Check and Security Regression CI must pass. Final verification should additionally run two real concurrent staging orders against WHMCS + Proxmox VE 9 and confirm distinct IPs/VMIDs and correct service mappings.
 
 ---
