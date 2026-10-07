@@ -239,8 +239,7 @@ This depends on your configuration on the PVE Host/s - bridge (vmbr0 etc) or sof
 
 These steps explain the unique requirements for QEMU & LXC guests.
 
-**Custom Fields:** Values need to go in Name & Select Options.<br>
-This needs configuring for each `WHMCS Admin > Products & Services` entry.
+**Custom Fields:** Provisioning target fields must be configured as **Select/Dropdown** fields with explicit **Select Options** for each `WHMCS Admin > Products & Services` entry. The module now rejects submitted KVMTemplate, Template and ISO values that are not in that product's configured options.
 
 <img alt="Custom Fields for the Service/Product set the ISO/Template/etc." src="_images/zProductISOetc.png">
 
@@ -253,14 +252,15 @@ Secondly, use that ID in the Custom Field `KVMTemplate`, as in `ID|Name`.
 > **Note**: `ID` is the Unique ID that your Template VM has in PVE.<br>
 > **Note**: `Name` is what will be displayed to your Clients in WHMCS.
 
-Thirdly, add another Custom Field `TPL_Node_QEMU` with the node short name.
+Thirdly, optionally add `TPL_Node_QEMU` with the node short name. The value must use a safe node-name format and must match a node returned by the authenticated PVE cluster; otherwise provisioning is rejected.
 
 ### VM Option 2: QEMU, WHMCS Plan + PVE ISO
 
 Firstly, create the Plan in WHMCS Module. Then too in WHMCS Config > Services.
 
-> Under the Service, you need to add a Custom Field `ISO` with the full location.<br>
-> This ISO must be located on all PVE Nodes, and not on the WHMCS installation side.
+> Under the Service, add a Select/Dropdown Custom Field `ISO` and list only approved images in Select Options.<br>
+> Supported values are `filename.iso|Friendly Name` (mapped to `local:iso/filename.iso`) or an explicit PVE volume such as `storage:iso/filename.iso|Friendly Name`.<br>
+> The selected ISO must exist on the target PVE storage/node; client-supplied values outside the configured options are rejected.
 
 ### CT Option 1: LXC, PVE Template File
 
@@ -271,7 +271,7 @@ Secondly, use that prefixed file name in the Custom Field `Template`.
 > Here is the syntax for that field, including display name:<br>
 > `local:vztmpl/ubuntu-99.99-standard_amd64.tar.gz|Ubuntu 99`
 
-Thirdly, add another Custom Field `TPL_Node_LXC` with the node short name.
+Thirdly, optionally add `TPL_Node_LXC` with the node short name. The value must use a safe node-name format and must match a node returned by the authenticated PVE cluster; otherwise provisioning is rejected.
 
 ### VM/CT Import/Associate Existing Guest
 
