@@ -208,8 +208,8 @@ function pvewhmcs_validate_provisioning_fields(array $params, $vmtype) {
 		'lxc_node' => '',
 	);
 
-	$kvmTemplate = isset($provisioningFields['kvm_template'])
-		? trim((string) $provisioningFields['kvm_template'])
+	$kvmTemplate = isset($params['customfields']['KVMTemplate'])
+		? trim((string) $params['customfields']['KVMTemplate'])
 		: '';
 
 	if ($kvmTemplate !== '') {
@@ -512,7 +512,8 @@ function pvewhmcs_CreateAccount_locked($params) {
 				$proxmox,
 				$template_node,
 				$vmid,
-				$params
+				$params,
+				$provisioningFields
 			) {
 				$allocatedVmid = pvewhmcs_find_next_available_vmid($proxmox, $template_node, $vmid);
 				$settings = array(
