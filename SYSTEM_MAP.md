@@ -17,7 +17,7 @@
 - Parent/upstream: `The-Network-Crew/Proxmox-VE-for-WHMCS`
 - Historical source: `cybercoder/PRVE`
 - At the reviewed commit, this fork's `master` is **exactly the same commit/tree as upstream master**. No fork-specific source changes were present.
-- **Post-audit source change baseline:** source changes through commit `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8` were specifically reviewed for the new Proxmox VE 9+ client reinstall workflow and PVE API HTTP-response compatibility. Documentation commits after that baseline do not change runtime behavior.
+- **Post-audit source change baseline:** source changes through commit `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f` were specifically reviewed for the new Proxmox VE 9+ client reinstall workflow and PVE API HTTP-response compatibility. Documentation commits after that baseline do not change runtime behavior.
 - New runtime file after the original audit: `modules/servers/pvewhmcs/reinstall.php`.
 
 ### Vendored noVNC integrity
@@ -210,6 +210,8 @@ Responsibilities:
 - Retain PVE authentication ticket + CSRF token in memory.
 - Send GET/POST/PUT/DELETE requests.
 - Parse HTTP status/body using libcurl response metadata rather than assuming an `HTTP/1.1` status line, improving compatibility with PVE 9 / HTTP/2-capable transports.
+- Login and subsequent API calls now consistently honor the class `verify_ssl` flag; the historical default is still `false`, so SEC-001 remains open until secure verification becomes the default.
+- PVE login ticket age is now expired correctly at two hours rather than using the former reversed comparison.
 - Discover nodes/guests.
 - Wrapper operations for start/stop/shutdown/resume/suspend/clone/snapshot/version.
 
@@ -446,7 +448,7 @@ When this repository changes:
 1. Read this file.
 2. Get current HEAD SHA.
 3. The original full-repository security baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`.
-4. Post-audit runtime changes for Reinstall/PVE9 transport were reviewed through `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8`. If current HEAD differs from that source baseline, compare from `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8` first; then inspect changed files and callers.
+4. Post-audit runtime changes for Reinstall/PVE9 transport were reviewed through `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`. If current HEAD differs from that source baseline, compare from `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f` first; then inspect changed files and callers.
 5. Re-evaluate trust boundaries for any new endpoint, hook, API call, database table, secret, or client-visible value.
 6. If noVNC version changes, re-run a vendor hash comparison against the exact upstream release/tag.
 7. Update this document's snapshot, flows, file/function map, data model, and security hotspots in the same PR/commit as architectural changes.
