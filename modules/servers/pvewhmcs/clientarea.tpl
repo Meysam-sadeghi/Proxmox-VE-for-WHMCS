@@ -287,34 +287,34 @@
 		<div class="pve-status-section">
 			{* VM Type & OS Icons *}
 			<div class="pve-vm-icons">
-				<img src="./modules/servers/pvewhmcs/img/{$vm_config['vtype']}.png" alt="{$vm_config['vtype']}" title="Type: {$vm_config['vtype']}"/>
-				<img src="./modules/servers/pvewhmcs/img/os/{$vm_config['ostype']}.png" alt="{$vm_config['ostype']}" title="OS: {$vm_config['ostype']}"/>
+				<img src="./modules/servers/pvewhmcs/img/{$vm_config['vtype']|escape:'url'}.png" alt="{$vm_config['vtype']|escape:'html':'UTF-8'}" title="Type: {$vm_config['vtype']|escape:'html':'UTF-8'}"/>
+				<img src="./modules/servers/pvewhmcs/img/os/{$vm_config['ostype']|escape:'url'}.png" alt="{$vm_config['ostype']|escape:'html':'UTF-8'}" title="OS: {$vm_config['ostype']|escape:'html':'UTF-8'}"/>
 			</div>
 			
 			{* Status Badge *}
 			<div class="pve-status-badge">
-				<img src="./modules/servers/pvewhmcs/img/{$vm_status['status']}.png" alt="{$vm_status['status']}"/>
-				<span class="status-text">{$vm_status['status']}</span>
-				<span class="uptime-text">Up {$vm_status['uptime']}</span>
+				<img src="./modules/servers/pvewhmcs/img/{$vm_status['status']|escape:'url'}.png" alt="{$vm_status['status']|escape:'html':'UTF-8'}"/>
+				<span class="status-text">{$vm_status['status']|escape:'html':'UTF-8'}</span>
+				<span class="uptime-text">Up {$vm_status['uptime']|escape:'html':'UTF-8'}</span>
 			</div>
 			
 			{* Resource Gauges *}
 			<div class="pve-gauges">
 				<script src="./modules/servers/pvewhmcs/js/CircularLoader.js"></script>
 				<div class="pve-gauge-item">
-					<div id="c1" class="circle" data-percent="{$vm_status['cpu']}"></div>
+					<div id="c1" class="circle" data-percent="{$vm_status['cpu']|escape:'html':'UTF-8'}"></div>
 					<strong>CPU</strong>
 				</div>
 				<div class="pve-gauge-item">
-					<div id="c2" class="circle" data-percent="{$vm_status['memusepercent']}"></div>
+					<div id="c2" class="circle" data-percent="{$vm_status['memusepercent']|escape:'html':'UTF-8'}"></div>
 					<strong>RAM</strong>
 				</div>
 				<div class="pve-gauge-item">
-					<div id="c3" class="circle" data-percent="{$vm_status['diskusepercent']}"></div>
+					<div id="c3" class="circle" data-percent="{$vm_status['diskusepercent']|escape:'html':'UTF-8'}"></div>
 					<strong>Disk</strong>
 				</div>
 				<div class="pve-gauge-item">
-					<div id="c4" class="circle" data-percent="{$vm_status['swapusepercent']}"></div>
+					<div id="c4" class="circle" data-percent="{$vm_status['swapusepercent']|escape:'html':'UTF-8'}"></div>
 					<strong>Swap</strong>
 				</div>
 			</div>
@@ -340,13 +340,13 @@
 	<table class="pve-specs-table">
 		<tr>
 			<td><span class="spec-label">Memory</span> <span class="spec-sublabel">(RAM)</span></td>
-			<td><span class="spec-value">{$vm_config['memory']}MB</span></td>
+			<td><span class="spec-value">{$vm_config['memory']|escape:'html':'UTF-8'}MB</span></td>
 		</tr>
 		<tr>
 			<td><span class="spec-label">Compute</span> <span class="spec-sublabel">(CPU)</span></td>
 			<td>
-				<span class="spec-value">{$vm_config['cores']} core(s)</span>
-				<div class="spec-detail">on {$vm_config['sockets']} socket(s)</div>
+				<span class="spec-value">{$vm_config['cores']|escape:'html':'UTF-8'} core(s)</span>
+				<div class="spec-detail">on {$vm_config['sockets']|escape:'html':'UTF-8'} socket(s)</div>
 			</td>
 		</tr>
 		<tr>
@@ -355,45 +355,45 @@
 				{if $vm_config['rootfs']}
 					{assign var="rootfs_parts" value=","|explode:$vm_config['rootfs']}
 					{foreach from=$rootfs_parts item=rpart}
-						{if $rpart|strpos:"size=" !== false}<span class="spec-value">{$rpart|replace:'size=':''}</span> <span class="spec-detail">(rootfs)</span>{/if}
+						{if $rpart|strpos:"size=" !== false}<span class="spec-value">{$rpart|replace:'size':''|escape:'html':'UTF-8'}</span> <span class="spec-detail">(rootfs)</span>{/if}
 					{/foreach}
 				{/if}
 				{if $vm_config['ide0']}
 					{assign var="ide0_parts" value=","|explode:$vm_config['ide0']}
 					{foreach from=$ide0_parts item=ipart}
-						{if $ipart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$ipart|replace:'size=':''}</span> (ide0)</div>{/if}
+						{if $ipart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$ipart|replace:'size':''|escape:'html':'UTF-8'}</span> (ide0)</div>{/if}
 					{/foreach}
 				{/if}
 				{if $vm_config['scsi0']}
 					{assign var="scsi0_parts" value=","|explode:$vm_config['scsi0']}
 					{foreach from=$scsi0_parts item=spart}
-						{if $spart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$spart|replace:'size=':''}</span> (scsi0)</div>{/if}
+						{if $spart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$spart|replace:'size':''|escape:'html':'UTF-8'}</span> (scsi0)</div>{/if}
 					{/foreach}
 				{/if}
 				{if $vm_config['virtio0']}
 					{assign var="virtio0_parts" value=","|explode:$vm_config['virtio0']}
 					{foreach from=$virtio0_parts item=vpart}
-						{if $vpart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$vpart|replace:'size=':''}</span> (virtio0)</div>{/if}
+						{if $vpart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$vpart|replace:'size':''|escape:'html':'UTF-8'}</span> (virtio0)</div>{/if}
 					{/foreach}
 				{/if}
 			</td>
 		</tr>
 		<tr>
 			<td><span class="spec-label">Boot Order</span></td>
-			<td><span class="spec-value">{($vm_config['boot']|replace:'order=':''|replace:';':' → ')}</span></td>
+			<td><span class="spec-value">{($vm_config['boot']|replace:'order=':''|replace:';':' → '|escape:'html':'UTF-8')}</span></td>
 		</tr>
 		<tr>
 			<td><span class="spec-label">IPv4</span> <span class="spec-sublabel">(Networking)</span></td>
 			<td>
-				<span class="spec-value">{$vm_config['ipv4']}</span>
-				<div class="spec-detail">Mask: {$vm_config['netmask4']} &bull; Gateway: {$vm_config['gateway4']}</div>
+				<span class="spec-value">{$vm_config['ipv4']|escape:'html':'UTF-8'}</span>
+				<div class="spec-detail">Mask: {$vm_config['netmask4']|escape:'html':'UTF-8'} &bull; Gateway: {$vm_config['gateway4']|escape:'html':'UTF-8'}</div>
 			</td>
 		</tr>
 		<tr>
 			<td><span class="spec-label">IP Config</span> <span class="spec-sublabel">(IPv4/v6)</span></td>
 			<td>
-				{if $vm_config['ipconfig0']}<div class="spec-detail"><strong>NIC #0:</strong> {($vm_config['ipconfig0']|replace:',':' &bull; '|replace:'=':': ')}</div>{/if}
-				{if $vm_config['ipconfig1']}<div class="spec-detail"><strong>NIC #1:</strong> {($vm_config['ipconfig1']|replace:',':' &bull; '|replace:'=':': ')}</div>{/if}
+				{if $vm_config['ipconfig0']}<div class="spec-detail"><strong>NIC #0:</strong> {($vm_config['ipconfig0']|replace:',':' &bull; '|replace:'=':': '|escape:'html':'UTF-8')}</div>{/if}
+				{if $vm_config['ipconfig1']}<div class="spec-detail"><strong>NIC #1:</strong> {($vm_config['ipconfig1']|replace:',':' &bull; '|replace:'=':': '|escape:'html':'UTF-8')}</div>{/if}
 			</td>
 		</tr>
 		<tr>
@@ -404,9 +404,9 @@
 					{if $part|strpos:"=" !== false}
 						{assign var="kv" value="="|explode:$part}
 						{if $kv[0] == 'virtio' || $kv[0] == 'e1000' || $kv[0] == 'rtl8139'}
-							<div class="spec-detail"><strong>{$kv[0]}</strong>: <code>{$kv[1]}</code></div>
+							<div class="spec-detail"><strong>{$kv[0]|escape:'html':'UTF-8'}</strong>: <code>{$kv[1]|escape:'html':'UTF-8'}</code></div>
 						{elseif $kv[0] == 'bridge' || $kv[0] == 'link_down' || $kv[0] == 'firewall' || $kv[0] == 'tag'}
-							<div class="spec-detail"><strong>{$kv[0]}</strong>: {$kv[1]}</div>
+							<div class="spec-detail"><strong>{$kv[0]|escape:'html':'UTF-8'}</strong>: {$kv[1]|escape:'html':'UTF-8'}</div>
 						{/if}
 					{/if}
 				{/foreach}
@@ -421,9 +421,9 @@
 					{if $part|strpos:"=" !== false}
 						{assign var="kv" value="="|explode:$part}
 						{if $kv[0] == 'virtio' || $kv[0] == 'e1000' || $kv[0] == 'rtl8139'}
-							<div class="spec-detail"><strong>{$kv[0]}</strong>: <code>{$kv[1]}</code></div>
+							<div class="spec-detail"><strong>{$kv[0]|escape:'html':'UTF-8'}</strong>: <code>{$kv[1]|escape:'html':'UTF-8'}</code></div>
 						{elseif $kv[0] == 'bridge' || $kv[0] == 'link_down' || $kv[0] == 'firewall' || $kv[0] == 'tag'}
-							<div class="spec-detail"><strong>{$kv[0]}</strong>: {$kv[1]}</div>
+							<div class="spec-detail"><strong>{$kv[0]|escape:'html':'UTF-8'}</strong>: {$kv[1]|escape:'html':'UTF-8'}</div>
 						{/if}
 					{/if}
 				{/foreach}
@@ -437,12 +437,12 @@
 		{if $vm_config['sshkeys']}
 		<tr>
 			<td><span class="spec-label">SSH Keys</span> <span class="spec-sublabel">(Public)</span></td>
-			<td><div class="spec-detail" style="word-break:break-all;">{$vm_config['sshkeys']}</div></td>
+			<td><div class="spec-detail" style="word-break:break-all;">{$vm_config['sshkeys']|escape:'html':'UTF-8'}</div></td>
 		</tr>
 		{/if}
 		<tr>
 			<td><span class="spec-label">Kernel</span> <span class="spec-sublabel">(OS)</span></td>
-			<td><span class="spec-value">{$vm_config['ostype']}</span></td>
+			<td><span class="spec-value">{$vm_config['ostype']|escape:'html':'UTF-8'}</span></td>
 		</tr>
 	</table>
 
@@ -461,34 +461,34 @@
 		<div class="pve-stats-content tab-content">
 			<div id="dailystat" class="tab-pane active">
 				<div class="pve-graphs-grid">
-					<img src="data:image/png;base64,{$vm_statistics['cpu']['day']}" alt="CPU (Daily)"/>
-					<img src="data:image/png;base64,{$vm_statistics['mem']['day']}" alt="Memory (Daily)"/>
-					<img src="data:image/png;base64,{$vm_statistics['netinout']['day']}" alt="Network I/O (Daily)"/>
-					<img src="data:image/png;base64,{$vm_statistics['diskrw']['day']}" alt="Disk I/O (Daily)"/>
+					<img src="data:image/png;base64,{$vm_statistics['cpu']['day']|escape:'html':'UTF-8'}" alt="CPU (Daily)"/>
+					<img src="data:image/png;base64,{$vm_statistics['mem']['day']|escape:'html':'UTF-8'}" alt="Memory (Daily)"/>
+					<img src="data:image/png;base64,{$vm_statistics['netinout']['day']|escape:'html':'UTF-8'}" alt="Network I/O (Daily)"/>
+					<img src="data:image/png;base64,{$vm_statistics['diskrw']['day']|escape:'html':'UTF-8'}" alt="Disk I/O (Daily)"/>
 				</div>
 			</div>
 			<div id="weeklystat" class="tab-pane">
 				<div class="pve-graphs-grid">
-					<img src="data:image/png;base64,{$vm_statistics['cpu']['week']}" alt="CPU (Weekly)"/>
-					<img src="data:image/png;base64,{$vm_statistics['mem']['week']}" alt="Memory (Weekly)"/>
-					<img src="data:image/png;base64,{$vm_statistics['netinout']['week']}" alt="Network I/O (Weekly)"/>
-					<img src="data:image/png;base64,{$vm_statistics['diskrw']['week']}" alt="Disk I/O (Weekly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['cpu']['week']|escape:'html':'UTF-8'}" alt="CPU (Weekly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['mem']['week']|escape:'html':'UTF-8'}" alt="Memory (Weekly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['netinout']['week']|escape:'html':'UTF-8'}" alt="Network I/O (Weekly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['diskrw']['week']|escape:'html':'UTF-8'}" alt="Disk I/O (Weekly)"/>
 				</div>
 			</div>
 			<div id="monthlystat" class="tab-pane">
 				<div class="pve-graphs-grid">
-					<img src="data:image/png;base64,{$vm_statistics['cpu']['month']}" alt="CPU (Monthly)"/>
-					<img src="data:image/png;base64,{$vm_statistics['mem']['month']}" alt="Memory (Monthly)"/>
-					<img src="data:image/png;base64,{$vm_statistics['netinout']['month']}" alt="Network I/O (Monthly)"/>
-					<img src="data:image/png;base64,{$vm_statistics['diskrw']['month']}" alt="Disk I/O (Monthly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['cpu']['month']|escape:'html':'UTF-8'}" alt="CPU (Monthly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['mem']['month']|escape:'html':'UTF-8'}" alt="Memory (Monthly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['netinout']['month']|escape:'html':'UTF-8'}" alt="Network I/O (Monthly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['diskrw']['month']|escape:'html':'UTF-8'}" alt="Disk I/O (Monthly)"/>
 				</div>
 			</div>
 			<div id="yearlystat" class="tab-pane">
 				<div class="pve-graphs-grid">
-					<img src="data:image/png;base64,{$vm_statistics['cpu']['year']}" alt="CPU (Yearly)"/>
-					<img src="data:image/png;base64,{$vm_statistics['mem']['year']}" alt="Memory (Yearly)"/>
-					<img src="data:image/png;base64,{$vm_statistics['netinout']['year']}" alt="Network I/O (Yearly)"/>
-					<img src="data:image/png;base64,{$vm_statistics['diskrw']['year']}" alt="Disk I/O (Yearly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['cpu']['year']|escape:'html':'UTF-8'}" alt="CPU (Yearly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['mem']['year']|escape:'html':'UTF-8'}" alt="Memory (Yearly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['netinout']['year']|escape:'html':'UTF-8'}" alt="Network I/O (Yearly)"/>
+					<img src="data:image/png;base64,{$vm_statistics['diskrw']['year']|escape:'html':'UTF-8'}" alt="Disk I/O (Yearly)"/>
 				</div>
 			</div>
 		</div>
