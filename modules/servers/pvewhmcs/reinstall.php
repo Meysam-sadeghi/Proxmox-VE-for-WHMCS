@@ -517,10 +517,12 @@ function pvewhmcs_reinstall_release_lock($serviceId)
  */
 function pvewhmcs_reinstall_next_vmid(PVE2_API $api)
 {
-    $start = (int) Capsule::table('mod_pvewhmcs')->where('id', '=', 1)->value('start_vmid');
+    $probeStart = (int) Capsule::table('mod_pvewhmcs')
+        ->where('id', '=', 1)
+        ->value('start_vmid');
 
     for ($i = 0; $i < 1000; $i++) {
-        $candidate = pvewhmcs_find_next_available_vmid($api, '', $start + $i);
+        $candidate = pvewhmcs_find_next_available_vmid($api, '', $probeStart);
 
         $mapped = Capsule::table('mod_pvewhmcs_vms')
             ->where('vmid', '=', (int) $candidate)
@@ -530,7 +532,9 @@ function pvewhmcs_reinstall_next_vmid(PVE2_API $api)
             return (int) $candidate;
         }
 
-        $start = (int) $candidate;
+        // A stale WHMCS mapping can reference a VMID that is already free in PVE.
+        // Move beyond it before asking the cluster for the next candidate again.
+        $probeStart = (int) $candidate + 1;
     }
 
     throw new Exception('Unable to find a VMID that is free in both PVE and WHMCS mappings.');
@@ -684,6 +688,28 @@ function pvewhmcs_reinstall_qemu_tweaks($plan, $guest, $password)
                 $settings['ipconfig1'] = 'ip6=dhcp';
                 break;
         }
+    }
+
+    // Apply the WHMCS plan network policy instead of trusting whatever NIC
+    // configuration happened to be baked into the selected template.
+    if ($plan->netmode !== 'none' && !empty($plan->netmodel)) {
+        $net0 = (string) $plan->netmodel;
+
+        if ($plan->netmode === 'bridge') {
+            $net0 .= ',bridge=' . $plan->bridge . $plan->vmbr;
+        }
+
+        $net0 .= ',firewall=' . (int) $plan->firewall;
+
+        if (!empty($plan->netrate)) {
+            $net0 .= ',rate=' . (int) $plan->netrate;
+        }
+
+        if (!empty($plan->vlanid)) {
+            $net0 .= ',tag=' . (int) $plan->vlanid;
+        }
+
+        $settings['net0'] = $net0;
     }
 
     return $settings;
@@ -848,6 +874,7 @@ function pvewhmcs_Reinstall($params)
     $oldNode = null;
     $oldWasRunning = false;
     $replacementStarted = false;
+    $mappingMoved = false;
     $newPassword = null;
 
     try {
@@ -993,14 +1020,21 @@ function pvewhmcs_Reinstall($params)
                 $selectedImage
             );
         });
+        $mappingMoved = true;
 
-        // Store the newly generated service password in WHMCS.
-        $passwordUpdate = localAPI('UpdateClientProduct', array(
-            'serviceid' => $serviceId,
-            'servicepassword' => $newPassword,
-        ));
-        $passwordStored = isset($passwordUpdate['result'])
-            && $passwordUpdate['result'] === 'success';
+        // Store the newly generated service password in WHMCS. A password-record
+        // update failure must not roll back a successfully cut-over VM.
+        $passwordStored = false;
+        try {
+            $passwordUpdate = localAPI('UpdateClientProduct', array(
+                'serviceid' => $serviceId,
+                'servicepassword' => $newPassword,
+            ));
+            $passwordStored = isset($passwordUpdate['result'])
+                && $passwordUpdate['result'] === 'success';
+        } catch (\Throwable $passwordError) {
+            $passwordStored = false;
+        }
 
         $cleanupWarning = '';
 
@@ -1058,15 +1092,25 @@ function pvewhmcs_Reinstall($params)
             );
         }
 
-        // If replacement creation succeeded but cutover failed before mapping moved,
-        // attempt to remove the unused replacement.
+        // Before the WHMCS mapping is moved, the old guest is still authoritative.
+        // Remove any staged replacement and restore the old runtime state so a
+        // database/cutover failure cannot leave an untracked VM using the same IP.
         if (
             $api instanceof PVE2_API
             && $newVmid
             && $newNode
-            && !$replacementStarted
+            && !$mappingMoved
         ) {
             try {
+                if ($replacementStarted) {
+                    pvewhmcs_reinstall_stop_old_guest(
+                        $api,
+                        $newNode,
+                        $guest->vtype,
+                        (int) $newVmid
+                    );
+                }
+
                 pvewhmcs_reinstall_destroy_guest(
                     $api,
                     $newNode,
@@ -1075,6 +1119,18 @@ function pvewhmcs_Reinstall($params)
                 );
             } catch (\Throwable $cleanupError) {
                 // Leave details to Activity Log/support; never expose credentials.
+            }
+
+            if ($oldNode && $oldWasRunning) {
+                try {
+                    $restartUpid = $api->post(
+                        '/nodes/' . $oldNode . '/' . $guest->vtype . '/' . (int) $guest->vmid . '/status/start',
+                        array()
+                    );
+                    pvewhmcs_reinstall_wait_task($api, $oldNode, $restartUpid, 180);
+                } catch (\Throwable $rollbackError) {
+                    // Best effort: support can use Activity Log and PVE task history.
+                }
             }
         }
 
