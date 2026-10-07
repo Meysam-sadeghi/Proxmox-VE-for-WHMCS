@@ -28,6 +28,8 @@ if (file_exists('../modules/addons/pvewhmcs/proxmox.php'))
 else
 	require_once(ROOTDIR . '/modules/addons/pvewhmcs/proxmox.php');
 
+require_once(ROOTDIR . '/modules/addons/pvewhmcs/security.php');
+
 // Client reinstall/rebuild workflow (Proxmox VE 9+)
 require_once(__DIR__ . '/reinstall.php');
 
@@ -1281,102 +1283,74 @@ function pvewhmcs_vmStat($params) {
 // VNC: Console access to VM/CT via noVNC
 function pvewhmcs_noVNC($params) {
 	global $CONFIG;
-	// Check if VNC Secret is configured in Module Config, fail early if not. (#27)
-	if (strlen(Capsule::table('mod_pvewhmcs')->where('id', '1')->value('vnc_secret'))<15) {
-		throw new Exception("PVEWHMCS Error: VNC Secret in Module Config either not set or not long enough. Recommend 20+ characters for security.");
-	}
-	
-	// Get server credentials and find guest node (VNC user lacks VM.Audit permission for /cluster/resources)
-	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
-	$serverport = $params["serverport"];
-	$proxmox_server = new PVE2_API($serverip, $params["serverusername"], "pam", $params["serverpassword"], $serverport);
-	if (!$proxmox_server->login()) {
-		return 'Failed to prepare noVNC. Unable to connect to server.';
-	}
-	
-	// Early prep work - find guest and node using server credentials
-	$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
-	if ($guest === null) {
-		return "Error performing action. Unable to find guest linked to Service ID ({$params['serviceid']})";
-	}
-	$guest_node = pvewhmcs_find_guest_node($proxmox_server, $guest, $params['serviceid']);
-	if (empty($guest_node)) {
-		return 'Failed to prepare noVNC. Unable to determine node.';
-	}
-	
-	// Now use VNC credentials for the actual VNC proxy request (restricted permissions)
-	$vncusername = 'vnc';
-	$vncpassword = Capsule::table('mod_pvewhmcs')->where('id', '1')->value('vnc_secret');
-	$proxmox = new PVE2_API($serverip, $vncusername, "pve", $vncpassword, $serverport);
-	if ($proxmox->login()) {
-		$vm_vncproxy = $proxmox->post('/nodes/' . $guest_node . '/' . $guest->vtype . '/' . $guest->vmid . '/vncproxy', array('websocket' => '1'));
 
-		// Get both tickets prepared
-		$pveticket = $proxmox->getTicket();
-		$vncticket = $vm_vncproxy['ticket'];
-		// $path should only contain the actual path without any query parameters
-		$path = 'api2/json/nodes/' . $guest_node . '/' . $guest->vtype . '/' . $guest->vmid . '/vncwebsocket?port=' . $vm_vncproxy['port'] . '&vncticket=' . urlencode($vncticket);
-		// Get WHMCS base URL (including subdirectory)
-		$whmcs_base = rtrim($CONFIG['SystemURL'], '/');
-		// Construct the noVNC Router URL with the path already prepared now
-		$url = $whmcs_base . '/modules/servers/pvewhmcs/novnc_router.php?host=' . $serverip . '&port=' . $serverport . '&pveticket=' . urlencode($pveticket) . '&path=' . urlencode($path) . '&vncticket=' . urlencode($vncticket);
-		// Build and deliver the noVNC Router hyperlink for access
-		$vncreply = '<center style="background-color: green;"><strong style="color: white;">Console (noVNC) successfully prepared!<br><a href="' . $url . '" target="_blanK" style="color: Khaki;"><u>Click here to launch noVNC.</u></a></strong></center>';
-		return $vncreply;
-	} else {
-		$vncreply = 'Failed to prepare noVNC. Please contact Technical Support.';
-		return $vncreply;
+	if (session_status() !== PHP_SESSION_ACTIVE) {
+		return 'Unable to initialize a secure console session.';
 	}
+
+	$serviceId = isset($params['serviceid']) ? (int) $params['serviceid'] : 0;
+	$userId = isset($params['userid'])
+		? (int) $params['userid']
+		: (isset($params['clientsdetails']['userid']) ? (int) $params['clientsdetails']['userid'] : 0);
+
+	if ($serviceId <= 0 || $userId <= 0) {
+		return 'Unable to validate the console request.';
+	}
+
+	$service = Capsule::table('tblhosting')
+		->where('id', '=', $serviceId)
+		->where('userid', '=', $userId)
+		->first();
+
+	if (!$service || (string) $service->domainstatus !== 'Active') {
+		return 'Console access is available only for an active service owned by this client.';
+	}
+
+	$guest = Capsule::table('mod_pvewhmcs_vms')
+		->where('id', '=', $serviceId)
+		->where('user_id', '=', $userId)
+		->first();
+
+	if (!$guest) {
+		return 'Unable to find the guest mapped to this service.';
+	}
+
+	if (!pvewhmcs_has_vnc_secret()) {
+		return 'Console access is not configured. Please contact Technical Support.';
+	}
+
+	if (!isset($_SESSION['pvewhmcs_console'])) {
+		$_SESSION['pvewhmcs_console'] = array();
+	}
+
+	// Keep only live sessions to avoid unbounded session growth.
+	$now = time();
+	foreach ($_SESSION['pvewhmcs_console'] as $key => $entry) {
+		if (!is_array($entry) || empty($entry['expires']) || (int) $entry['expires'] < $now) {
+			unset($_SESSION['pvewhmcs_console'][$key]);
+		}
+	}
+
+	$nonce = bin2hex(random_bytes(32));
+	$_SESSION['pvewhmcs_console'][$nonce] = array(
+		'serviceid' => $serviceId,
+		'userid' => $userId,
+		'expires' => $now + 60,
+	);
+
+	$whmcsBase = rtrim((string) $CONFIG['SystemURL'], '/');
+	$url = $whmcsBase . '/modules/servers/pvewhmcs/novnc_router.php?session=' . rawurlencode($nonce);
+
+	return '<div class="alert alert-success" style="text-align:center;">'
+		. '<strong>Secure console session prepared.</strong><br>'
+		. '<a href="' . htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" target="_blank" rel="noopener noreferrer">'
+		. 'Open noVNC Console'
+		. '</a></div>';
 }
 
 // VNC: Console access to VM/CT via SPICE
 function pvewhmcs_SPICE($params) {
-	global $CONFIG;
-	// Check if VNC Secret is configured in Module Config, fail early if not. (#27)
-	if (strlen(Capsule::table('mod_pvewhmcs')->where('id', '1')->value('vnc_secret'))<15) {
-		throw new Exception("PVEWHMCS Error: VNC Secret in Module Config either not set or not long enough. Recommend 20+ characters for security.");
-	}
-	
-	// Get server credentials and find guest node (VNC user lacks VM.Audit permission for /cluster/resources)
-	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
-	$proxmox_server = new PVE2_API($serverip, $params["serverusername"], "pam", $params["serverpassword"], $params["serverport"]);
-	if (!$proxmox_server->login()) {
-		return 'Failed to prepare SPICE. Unable to connect to server.';
-	}
-	
-	// Early prep work - find guest and node using server credentials
-	$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
-	if ($guest === null) {
-		return "Error performing action. Unable to find guest linked to Service ID ({$params['serviceid']})";
-	}
-	$guest_node = pvewhmcs_find_guest_node($proxmox_server, $guest, $params['serviceid']);
-	if (empty($guest_node)) {
-		return 'Failed to prepare SPICE. Unable to determine node.';
-	}
-	
-	// Now use VNC credentials for the actual SPICE proxy request (restricted permissions)
-	$vncusername = 'vnc';
-	$vncpassword = Capsule::table('mod_pvewhmcs')->where('id', '1')->value('vnc_secret');
-	$proxmox = new PVE2_API($serverip, $vncusername, "pve", $vncpassword, $params["serverport"]);
-	if ($proxmox->login()) {
-		$vm_vncproxy = $proxmox->post('/nodes/' . $guest_node . '/' . $guest->vtype . '/' . $guest->vmid . '/vncproxy', array('websocket' => '1'));
-
-		// Get both tickets prepared
-		$pveticket = $proxmox->getTicket();
-		$vncticket = $vm_vncproxy['ticket'];
-		// $path should only contain the actual path without any query parameters
-		$path = 'api2/json/nodes/' . $guest_node . '/' . $guest->vtype . '/' . $guest->vmid . '/vncwebsocket?port=' . $vm_vncproxy['port'] . '&vncticket=' . urlencode($vncticket);
-		// Get WHMCS base URL (including subdirectory)
-		$whmcs_base = rtrim($CONFIG['SystemURL'], '/');
-		// Construct the SPICE Router URL with the path already prepared now
-		$url = $whmcs_base . '/modules/servers/pvewhmcs/spice_router.php?host=' . $serverip . '&port=' . $serverport . '&pveticket=' . urlencode($pveticket) . '&path=' . urlencode($path) . '&vncticket=' . urlencode($vncticket);
-		// Build and deliver the SPICE Router hyperlink for access
-		$vncreply = '<center style="background-color: green;"><strong>Console (SPICE) successfully prepared.<br><a href="' . $url . '" target="_blanK" style="color: Khaki;"><u>Click here</u></a> to launch SPICE.</strong></center>';
-		return $vncreply;
-	} else {
-		$vncreply = 'Failed to prepare SPICE. Please contact Technical Support.';
-		return $vncreply;
-	}
+	return 'SPICE console access is disabled for security. Use the secure noVNC console instead.';
 }
 
 // PVE API FUNCTION, CLIENT/ADMIN: Start the VM/CT
