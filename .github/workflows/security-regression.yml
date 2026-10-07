@@ -402,6 +402,49 @@ jobs:
           ! grep -Fq "echo '<td>' . \$pool->gateway" modules/addons/pvewhmcs/pvewhmcs.php
           ! grep -Fq "value=\"' . \$config->vnc_secret" modules/addons/pvewhmcs/pvewhmcs.php
 
+      - name: Reject raw DB/PVE object output in addon HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -Fq 'function list_ips($poolId)' modules/addons/pvewhmcs/pvewhmcs.php
+          ! grep -Fq "where('pool_id', '=', \$_GET['id'])" modules/addons/pvewhmcs/pvewhmcs.php
+          grep -Fq 'pvewhmcs_e($ipAddress)' modules/addons/pvewhmcs/pvewhmcs.php
+          grep -Fq 'pvewhmcs_e($mask)' modules/addons/pvewhmcs/pvewhmcs.php
+          grep -Fq 'pvewhmcs_e($serviceLink)' modules/addons/pvewhmcs/pvewhmcs.php
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          source = Path("modules/addons/pvewhmcs/pvewhmcs.php").read_text(encoding="utf-8")
+          violations = []
+
+          # Catch direct one-line echo of DB/object properties unless the
+          # expression explicitly escapes or casts the value. This supplements
+          # the specific historical regression assertions above.
+          for number, line in enumerate(source.splitlines(), start=1):
+              if "echo " not in line or "->" not in line:
+                  continue
+              if any(safe in line for safe in (
+                  "pvewhmcs_e(",
+                  "htmlspecialchars(",
+                  "(int)",
+                  "rawurlencode(",
+                  "json_encode(",
+              )):
+                  continue
+              # Navigation comparisons such as $_GET['tab'] contain no object
+              # property and are excluded by the -> requirement above.
+              if re.search(r'\$[A-Za-z_][A-Za-z0-9_]*->\w+', line):
+                  violations.append((number, line.strip()))
+
+          if violations:
+              for number, line in violations:
+                  print(f"raw addon object output at line {number}: {line}")
+              raise SystemExit(1)
+          PY
+
       - name: Verify secure console cookie-domain derivation
         shell: bash
         run: |
