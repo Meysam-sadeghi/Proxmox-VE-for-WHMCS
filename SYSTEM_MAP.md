@@ -3,6 +3,8 @@
 > **Purpose:** This is the canonical fast-start map for humans and AI reviewing this repository.  
 > Read this file first. Do **not** re-scan vendored noVNC or the whole repository unless the reviewed commit has changed or the task specifically concerns those files.
 
+> **Security remediation:** For the authoritative finding list, severity, evidence, fix requirements and status tracking, read [SECURITY_AUDIT.md](SECURITY_AUDIT.md) immediately after this file. Future AI should use that tracker instead of repeating the full audit.
+
 ## 1. Snapshot / provenance
 
 - Repository: `Meysam-sadeghi/Proxmox-VE-for-WHMCS`
