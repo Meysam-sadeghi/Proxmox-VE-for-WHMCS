@@ -720,7 +720,7 @@ Console auth does not depend on incorrect public-suffix assumptions.
 ### Fix commit / verification
 
 - Commits: `d0a6f5aa062ea61d33cf17678412ad613e1113c2`, `10523475516b4417755def832fbbd82573577ebb`
-- Verification: test the real production domain (including multi-label TLD if applicable) and inspect the resulting cookie domain.
+- Verification: security CI behaviorally verifies normal sibling hosts, multi-label `.co.uk` domains, case/trailing-dot normalization, unrelated domains, and IP-literal rejection. Inspect the resulting cookie attributes/domain in the real production browser topology before marking VERIFIED.
 
 ## SEC-016 — Remote version check lacks defensive cURL controls
 
