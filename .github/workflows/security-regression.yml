@@ -92,6 +92,51 @@ jobs:
           '
 
 
+      - name: Verify log redaction and minimization
+        shell: bash
+        run: |
+          set -euo pipefail
+          php -r '
+            require "modules/addons/pvewhmcs/security.php";
+
+            $secretValues = array(
+                "hunter2",
+                "token-secret-123",
+                "PVE-ticket-secret",
+                "csrf-secret-456",
+                "vnc-secret-789"
+            );
+
+            $input = array(
+                "serverpassword" => "hunter2",
+                "nested" => array(
+                    "token" => "token-secret-123",
+                    "safe" => "keep-me"
+                ),
+                "message" => "PVEAuthCookie=PVE-ticket-secret csrfpreventiontoken=csrf-secret-456 vncticket=vnc-secret-789"
+            );
+
+            $redacted = json_encode(pvewhmcs_redact_log_value($input));
+            foreach ($secretValues as $secret) {
+                if (strpos($redacted, $secret) !== false) {
+                    fwrite(STDERR, "secret survived redaction: " . $secret . "\n");
+                    exit(1);
+                }
+            }
+
+            $summary = json_encode(pvewhmcs_safe_log_result(array(
+                "password" => "hunter2",
+                "vmid" => 100
+            )));
+
+            if (strpos($summary, "hunter2") !== false) {
+                fwrite(STDERR, "safe response summary leaked a value\n");
+                exit(1);
+            }
+          '
+          ! grep -Fq 'json_encode($cluster_resources)' modules/addons/pvewhmcs/pvewhmcs.php
+          ! grep -Fq 'json_encode($tasks)' modules/addons/pvewhmcs/pvewhmcs.php
+
       - name: Keep console tickets out of public HTTP links
         shell: bash
         run: |
