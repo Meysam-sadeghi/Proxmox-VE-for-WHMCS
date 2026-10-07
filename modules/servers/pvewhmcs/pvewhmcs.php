@@ -71,6 +71,26 @@ function pvewhmcs_client_safe_error(array $params, $action, $detail = '') {
 	return 'Unable to complete the requested server action. Please try again or contact support.';
 }
 
+function pvewhmcs_clientarea_error_response(array $params, $detail = '') {
+	pvewhmcs_secure_log_module_call(
+		'pvewhmcs',
+		'pvewhmcs_ClientArea',
+		pvewhmcs_safe_log_context($params),
+		pvewhmcs_redact_log_value($detail)
+	);
+
+	return array(
+		'templatefile' => 'clientarea',
+		'vars' => array(
+			'client_error' => 'Unable to load this server. Please contact support if the problem continues.',
+			'vm_config' => array(),
+			'vm_status' => array(),
+			'vm_statistics' => array(),
+			'vm_vncproxy' => null,
+		),
+	);
+}
+
 
 /**
  * Revalidate WHMCS service ownership and its PVE guest mapping before any
@@ -1137,25 +1157,10 @@ function pvewhmcs_ClientArea($params) {
 		$guest = $authorized['guest'];
 		$pveservice = $authorized['service'];
 	} catch (\Throwable $e) {
-		pvewhmcs_secure_log_module_call(
-			'pvewhmcs',
-			__FUNCTION__,
-			pvewhmcs_safe_log_context($params),
-			pvewhmcs_redact_log_value($e->getMessage())
-		);
-
-		return array(
-			'templatefile' => 'clientarea',
-			'vars' => array(
-				'client_error' => 'Unable to load this server. Please contact support if the problem continues.',
-				'vm_config' => array(),
-				'vm_status' => array(),
-				'vm_statistics' => array(),
-				'vm_vncproxy' => null,
-			),
-		);
+		return pvewhmcs_clientarea_error_response($params, $e->getMessage());
 	}
 
+	try {
 	// Gather access credentials for the already-authorized service's PVE server.
 	$pveserver=Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
 
@@ -1235,8 +1240,7 @@ function pvewhmcs_ClientArea($params) {
 				$vm_status['swapusepercent'] = 0;
 			}
 		} else {
-	    		// Handle the VM not found in the cluster resources (Optional)
-			echo "VM/CT not found in Cluster Resources.";
+			throw new RuntimeException('Guest was not found in cluster resources.');
 		}
 
 		// ----------------------------------------------------------------
@@ -1275,10 +1279,8 @@ function pvewhmcs_ClientArea($params) {
 		$vm_config['gateway4'] = $guest->gateway ;
 		$vm_config['created'] = $guest->created ;
 		$vm_config['v6prefix'] = $guest->v6prefix ;
-	}
-	else {
-		echo '<center><strong>Error: Unable to gather data from Hypervisor.<br>Please contact Tech Support!</strong></center>';
-		exit;
+	} else {
+		throw new RuntimeException('Unable to authenticate to the assigned Proxmox server.');
 	}
 
 	return array(
@@ -1292,6 +1294,9 @@ function pvewhmcs_ClientArea($params) {
 			'vm_vncproxy' => $vm_vncproxy,
 		),
 	);
+	} catch (\Throwable $e) {
+		return pvewhmcs_clientarea_error_response($params, $e->getMessage());
+	}
 }
 
 // OUTPUT: VM Statistics/Graphs render to Client Area
