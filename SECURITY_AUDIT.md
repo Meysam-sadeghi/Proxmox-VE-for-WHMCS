@@ -157,8 +157,10 @@ Compromise of WHMCS, the database encryption boundary, logging, or the API chann
 
 - The API client supports Proxmox API tokens via WHMCS Server Username `user@realm!tokenid` and Password = token secret.
 - API-token requests use the PVE `Authorization: PVEAPIToken=...` mechanism and do not create login tickets or CSRF tokens.
+- Provisioning/management authentication now **requires** an API token by default; ordinary username/password login is rejected even for non-root management identities.
+- The only explicit password-login exception is the separate restricted `vnc@pve` console identity, which is instantiated with token enforcement disabled only for console ticket creation.
 - `root@pam`, `root` in the PAM realm, and tokens backed by `root@pam` are explicitly rejected.
-- README now requires a dedicated privilege-separated token and documents scoped ACL guidance.
+- README requires a dedicated privilege-separated token and documents scoped ACL guidance.
 
 ### Fix commit / verification
 
