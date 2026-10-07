@@ -355,25 +355,25 @@
 				{if $vm_config['rootfs']}
 					{assign var="rootfs_parts" value=","|explode:$vm_config['rootfs']}
 					{foreach from=$rootfs_parts item=rpart}
-						{if $rpart|strpos:"size=" !== false}<span class="spec-value">{$rpart|replace:'size':''|escape:'html':'UTF-8'}</span> <span class="spec-detail">(rootfs)</span>{/if}
+						{if $rpart|strpos:"size=" !== false}<span class="spec-value">{$rpart|replace:'size=':''|escape:'html':'UTF-8'}</span> <span class="spec-detail">(rootfs)</span>{/if}
 					{/foreach}
 				{/if}
 				{if $vm_config['ide0']}
 					{assign var="ide0_parts" value=","|explode:$vm_config['ide0']}
 					{foreach from=$ide0_parts item=ipart}
-						{if $ipart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$ipart|replace:'size':''|escape:'html':'UTF-8'}</span> (ide0)</div>{/if}
+						{if $ipart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$ipart|replace:'size=':''|escape:'html':'UTF-8'}</span> (ide0)</div>{/if}
 					{/foreach}
 				{/if}
 				{if $vm_config['scsi0']}
 					{assign var="scsi0_parts" value=","|explode:$vm_config['scsi0']}
 					{foreach from=$scsi0_parts item=spart}
-						{if $spart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$spart|replace:'size':''|escape:'html':'UTF-8'}</span> (scsi0)</div>{/if}
+						{if $spart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$spart|replace:'size=':''|escape:'html':'UTF-8'}</span> (scsi0)</div>{/if}
 					{/foreach}
 				{/if}
 				{if $vm_config['virtio0']}
 					{assign var="virtio0_parts" value=","|explode:$vm_config['virtio0']}
 					{foreach from=$virtio0_parts item=vpart}
-						{if $vpart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$vpart|replace:'size':''|escape:'html':'UTF-8'}</span> (virtio0)</div>{/if}
+						{if $vpart|strpos:"size=" !== false}<div class="spec-detail"><span class="spec-value">{$vpart|replace:'size=':''|escape:'html':'UTF-8'}</span> (virtio0)</div>{/if}
 					{/foreach}
 				{/if}
 			</td>
@@ -392,8 +392,8 @@
 		<tr>
 			<td><span class="spec-label">IP Config</span> <span class="spec-sublabel">(IPv4/v6)</span></td>
 			<td>
-				{if $vm_config['ipconfig0']}<div class="spec-detail"><strong>NIC #0:</strong> {($vm_config['ipconfig0']|replace:',':' &bull; '|replace:'=':': '|escape:'html':'UTF-8')}</div>{/if}
-				{if $vm_config['ipconfig1']}<div class="spec-detail"><strong>NIC #1:</strong> {($vm_config['ipconfig1']|replace:',':' &bull; '|replace:'=':': '|escape:'html':'UTF-8')}</div>{/if}
+				{if $vm_config['ipconfig0']}<div class="spec-detail"><strong>NIC #0:</strong> {($vm_config['ipconfig0']|replace:',':' • '|replace:'=':': '|escape:'html':'UTF-8')}</div>{/if}
+				{if $vm_config['ipconfig1']}<div class="spec-detail"><strong>NIC #1:</strong> {($vm_config['ipconfig1']|replace:',':' • '|replace:'=':': '|escape:'html':'UTF-8')}</div>{/if}
 			</td>
 		</tr>
 		<tr>
