@@ -206,9 +206,12 @@ Customer/root passwords and/or PVE credentials may persist in the WHMCS Module L
 ### Remediation applied
 
 - Raw provisioning `$params`, all custom fields, server credentials and customer/root passwords are no longer passed to `logModuleCall()`.
-- Debug logging now uses a minimal non-secret context (service/user/product/server IDs and safe VM metadata).
-- Full PVE guest configuration and cluster resource dumps were removed from client-area debug logs.
-- The full WHMCS provisioning params array is no longer exposed to the Smarty client template.
+- Debug logging uses a minimal non-secret context (service/user/product/server IDs and safe VM metadata).
+- Added shared recursive log redaction for password/secret/token/ticket/cookie/authorization/CSRF-like keys and common string encodings.
+- Raw PVE success/error responses are no longer written to module logs; logs record bounded response summaries only.
+- Full cluster resource/task dumps were removed from addon debug logs.
+- Reinstall activity errors are redacted before being written to WHMCS Activity Log.
+- The full WHMCS provisioning params array is not exposed to the Smarty client template.
 
 ### Fix commit / verification
 
