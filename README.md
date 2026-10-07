@@ -71,19 +71,46 @@ Please note specific VNC & Network requirements below - read 100% of the README.
 
 **First, read the above System Requirements, and resolve any blockers to using Proxmox VE for WHMCS.**
 
-### 👥 PVE: User x2 Requirement (API & VNC users)
+### 👥 PVE: two restricted identities (Provisioning API + Console)
 
-#### Credentials: root account for each PVE host
+#### Provisioning identity: dedicated PVE API token — root is prohibited
 
-**You must have a root account to use the Module at all.** Configured via WHMCS > Servers.
+**Do not configure `root@pam` or a token backed by `root@pam`. The module now rejects root-backed credentials.**
 
-This is configured in the `pam` realm. 
+Create a dedicated Proxmox user and a privilege-separated API token. Proxmox documents that an API token's permissions are always a subset of its backing user, and `privsep=1` allows the token to be restricted further.
 
-#### Credentials: VNC user for Console Access only
+Example identity:
 
-Additionally, to improve security, for VNC you must also have a Restricted User. 
+```text
+PVE user:   whmcs@pve
+Token ID:   whmcs@pve!provisioning
+WHMCS user: whmcs@pve!provisioning
+WHMCS pass: <API token secret>
+```
 
-Configured in the _Module_ as detailed below, once you've added/restricted it in PVE.
+A practical baseline is to grant the token read-only cluster visibility plus VM-management permissions and datastore allocation only where this module deploys guests. Use the narrowest ACL paths your topology permits; do not grant user-management, datacenter configuration, host-shell or root privileges.
+
+Example starting point to adapt to your storage/ACL layout:
+
+```bash
+pveum user add whmcs@pve
+pveum user token add whmcs@pve provisioning -privsep 1
+pveum acl modify / -token 'whmcs@pve!provisioning' -role PVEAuditor
+pveum acl modify /vms -token 'whmcs@pve!provisioning' -role PVEVMAdmin
+pveum acl modify /storage/YOUR_STORAGE -token 'whmcs@pve!provisioning' -role PVEDatastoreUser
+```
+
+Verify the effective permissions with:
+
+```bash
+pveum user token permissions whmcs@pve provisioning
+```
+
+If your Proxmox deployment uses SDN or additional storage, grant only the corresponding required resource permissions. Test create/clone/start/stop/delete/reinstall on a staging service before production.
+
+#### Console identity: `vnc@pve`
+
+Console access uses a separate restricted `vnc@pve` identity with **VM.Console only**. Its secret is stored encrypted by WHMCS and is never rendered back into the module configuration page.
 
 ### 🏃‍♂️ Installing the WHMCS Module `pvewhmcs`
 
@@ -100,7 +127,7 @@ Configured in the _Module_ as detailed below, once you've added/restricted it in
 **Once you've done all of that, in order to get the module working properly, you need to:**
 
 0. Proxmox VE > Create an additional VNC-only user, per instructions below
-1. WHMCS Admin > Config > Servers > Add (Advanced) > PVE Host/s (User: `root`; IPv4: `PVE's`; no port suffix!)
+1. WHMCS Admin > Config > Servers > Add (Advanced) > PVE Host/s. Set **Hostname** to the DNS name covered by the PVE TLS certificate, Username to `whmcs@pve!provisioning`, Password to the API-token secret, and port to `8006`.
 2. WHMCS Admin > Addons > Proxmox VE for WHMCS > Module Config > VNC Secret (see below)
 3. WHMCS Admin > Addons > Proxmox VE for WHMCS > Add QEMU/LXC Plan/s
 4. WHMCS Admin > Addons > Proxmox VE for WHMCS > Add an IPv4 Pool
@@ -122,9 +149,7 @@ Configured in the _Module_ as detailed below, once you've added/restricted it in
 
 ## 🥽 2. noVNC: Console Tunnel (Client Area)
 
-After forking the module, we considered how to improve security of Console Tunneling via WHMCS. We decided to implement a routing method which uses a secondary user in Proxmox VE with very restrictive permissions. 
-
-**This is due to be re-built again in 2026 to further enhance security.**
+Console access uses a separate restricted Proxmox identity and a server-side one-time bootstrap. The customer-facing link contains only a short-lived random nonce; PVE authentication tickets, VNC tickets, destination host, port and WebSocket path are no longer accepted from the browser URL.
 
 ### How to offer VNC via WHMCS Client Area!
 
@@ -147,9 +172,7 @@ After forking the module, we considered how to improve security of Console Tunne
 5. WHMCS > Modules > Proxmox VE for WHMCS > Module Config > VNC Secret = 'vnc' password (PVE) you set
 
 > [!CAUTION]
-> Do NOT set less restrictive permissions. The above is designed for interim security.
-> 
-> **However, if you wish for proper security: wait for VNC to be further improved.**
+> Do not grant this console identity provisioning or datacenter privileges. Keep it limited to `VM.Console`.
 
 <img alt="Client Area GUI showing the reply which links off to the VNC Console/Client" src="_images/zConsoleReady.png">
 
@@ -161,14 +184,14 @@ Once you have it configured, clicking noVNC in Client Area provides direct link 
 
 <img alt="Client Area is ready for you to click into noVNC terminal console" src="_images/zVNCprepared.png">
 
-**Here are most of the critical requirements for VNC tunnelling:**
+**Secure noVNC requirements:**
 
-1. PVE must be at an IPv4 which has PTR the exact same as PVE's hostname.
-2. You must use different Subdomains on the 1x Domain Name, for the cookie (anti-CSRF).
-3. If your Domain Name has a 2-part TLD (ie. co.uk) then you will need to fork & amend `novnc_router.php` - ideally we/someone will optimise this down the track.
-4. You must configure a VNC Secret in the Module Settings, after creating it in PVE.
-5. You must have a stable and "relatively" static IPv4 fixed/routed WAN address for each PVE host. **CGNAT, Cellular & other "fast DHCP" style configurations cannot be worked with due to a variety of external network issues.** We will not support anything except a perfectly-configured `pvewhmcs`. Thank you!
-6. Cookies must be properly usable and not manipulated by htaccess or similar rules, to ensure that `PVEAuthCookie` is properly set in-browser, for same-domain cross-subdomain access.
+1. WHMCS and PVE must both use HTTPS with valid certificates.
+2. Configure the PVE server in WHMCS using its certificate-valid DNS hostname; direct IP API connections are not suitable for the secure console.
+3. WHMCS and the PVE hostname must be under a common registrable domain so the short-lived, `HttpOnly`, `Secure`, path-scoped PVE console cookie can reach the PVE WebSocket endpoint.
+4. Configure the restricted `vnc@pve` secret in Module Settings. The module encrypts it with WHMCS and never displays the stored value again.
+5. The console bootstrap nonce expires in about one minute and is single-use; opening or refreshing an expired console requires launching it again from the service page.
+6. The WebSocket destination is derived server-side from the WHMCS service's assigned Proxmox server and cannot be overridden by client URL parameters.
 
 <img alt="Admin GUI of the Module Config (VNC Secret, Start VMID, Debug Log y/n)" src="_images/zConfiguration.png">
 
@@ -307,9 +330,20 @@ This workflow uses the Proxmox VE REST API under `/api2/json` and verifies at ru
 > [!IMPORTANT]
 > Reinstall is destructive. All data in the old guest is discarded after successful cutover. Test the workflow on a non-production WHMCS product/PVE node before enabling it for customers.
 >
-> The existing security findings in `SECURITY_AUDIT.md` still apply. In particular, PVE API TLS verification and least-privilege API credentials should be hardened before production exposure.
+> Security hardening is tracked in `SECURITY_AUDIT.md`. The module now defaults to verified TLS and prohibits root-backed PVE API credentials; production rollout still requires staging validation against your exact WHMCS/PVE topology.
 
 ## 🔄 5. PATCH: Updating the Module
+
+### Security migration checklist for this hardened release
+
+When upgrading an existing installation:
+
+1. **Replace root credentials before deploying the code.** Create the dedicated PVE API token described above and update every WHMCS Proxmox Server entry.
+2. **Use a certificate-valid PVE hostname.** The module now verifies TLS by default; self-signed/untrusted or hostname-mismatched certificates will fail instead of being silently accepted.
+3. **Open the addon once after upgrade.** This automatically migrates any legacy plaintext `vnc_secret` to WHMCS-encrypted storage. Confirm the database value begins with `enc:`, then rotate the historical `vnc@pve` password in Proxmox and save the new secret once.
+4. **Purge historical WHMCS Module Log entries** created before this hardening release if Debug Mode was ever enabled. Older versions could log customer/root or PVE credentials. Rotate any PVE/customer credentials that may have appeared there.
+5. **Test on a non-production service:** create, start, reboot, stop, suspend/unsuspend, noVNC, reinstall and terminate.
+6. Confirm the GitHub **PHP Syntax Check** and **Security Regression Checks** remain green for any local fork changes.
 
 ### Regularly check for updates
 

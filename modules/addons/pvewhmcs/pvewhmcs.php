@@ -28,8 +28,57 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 // Define where the module operates in the Admin GUI
 define( 'pvewhmcs_BASEURL', 'addonmodules.php?module=pvewhmcs' );
 
-// DEP: Require the PHP API Class to interact with Proxmox VE
+/**
+ * WHMCS admin CSRF helpers.
+ */
+function pvewhmcs_e($value) {
+	return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function pvewhmcs_admin_csrf_input() {
+	if (!function_exists('generate_token')) {
+		throw new RuntimeException('WHMCS CSRF token generator is unavailable.');
+	}
+
+	$token = generate_token('plain');
+	return '<input type="hidden" name="token" value="'
+		. htmlspecialchars($token, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+		. '">';
+}
+
+function pvewhmcs_admin_delete_form($action, $id, array $extra = array()) {
+	$allowed = array('removeplan', 'removeippool', 'removeip');
+	if (!in_array($action, $allowed, true)) {
+		throw new InvalidArgumentException('Unsupported delete action.');
+	}
+
+	$html = '<form method="post" style="display:inline" onsubmit="return confirm(\'This action cannot be undone. Continue?\');">';
+	$html .= pvewhmcs_admin_csrf_input();
+	$html .= '<input type="hidden" name="pvewhmcs_delete_action" value="'
+		. htmlspecialchars($action, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">';
+	$html .= '<input type="hidden" name="id" value="' . (int) $id . '">';
+
+	foreach ($extra as $name => $value) {
+		if (!preg_match('/^[A-Za-z0-9_]+$/', (string) $name)) {
+			continue;
+		}
+		$html .= '<input type="hidden" name="'
+			. htmlspecialchars((string) $name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+			. '" value="'
+			. htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+			. '">';
+	}
+
+	$html .= '<button type="submit" class="btn btn-link" style="padding:0;border:0;background:none;">'
+		. '<img height="16" width="16" border="0" alt="Delete" src="images/delete.gif">'
+		. '</button></form>';
+
+	return $html;
+}
+
+// DEP: Require the PHP API Class and shared security helpers.
 require_once('proxmox.php');
+require_once('security.php');
 
 // CONFIG: Declare key options to the WHMCS Addon Module framework.
 function pvewhmcs_config() {
@@ -166,10 +215,26 @@ function get_pvewhmcs_latest_version(){
 	$ch = curl_init();
 	curl_setopt($ch, CURLOPT_URL, "https://raw.githubusercontent.com/The-Network-Crew/Proxmox-VE-for-WHMCS/master/version");
 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	$result = curl_exec($ch);
-	curl_close ($ch);
+	curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+	curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+	curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+	curl_setopt($ch, CURLOPT_FAILONERROR, true);
+	curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
 
-	return str_replace("\n", "", $result);
+	$result = curl_exec($ch);
+	$httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+	curl_close($ch);
+
+	if ($result === false || $httpCode !== 200) {
+		return pvewhmcs_version();
+	}
+
+	$result = trim((string) $result);
+	if (!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9._-]+)?$/', $result)) {
+		return pvewhmcs_version();
+	}
+
+	return $result;
 }
 
 /**
@@ -218,6 +283,24 @@ function pvewhmcs_addon_fetch_rrd($proxmox, $path, $timeframe, $ds) {
 function pvewhmcs_output($vars) {
 	$modulelink = $vars['modulelink'];
 
+	// Transparently migrate any legacy plaintext VNC credential the first time
+	// an administrator opens the addon after this security update.
+	if (pvewhmcs_has_vnc_secret()) {
+		try {
+			pvewhmcs_get_vnc_secret();
+		} catch (\Throwable $e) {
+			throw new RuntimeException('Unable to migrate the stored VNC secret securely.');
+		}
+	}
+
+	// Every state-changing addon request must carry a valid WHMCS admin CSRF token.
+	if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+		if (!function_exists('check_token')) {
+			throw new RuntimeException('WHMCS CSRF validator is unavailable.');
+		}
+		check_token();
+	}
+
 	// Check for update and report if available
 	if (!empty(is_pvewhmcs_outdated())) {
 		$_SESSION['pvewhmcs']['infomsg']['title']='Proxmox VE for WHMCS: New version available!' ;
@@ -229,9 +312,9 @@ function pvewhmcs_output($vars) {
 		echo '
 		<div class="infobox">
 		<strong>
-		<span class="title">' . $_SESSION['pvewhmcs']['infomsg']['title'] . '</span>
+		<span class="title">' . pvewhmcs_e($_SESSION['pvewhmcs']['infomsg']['title']) . '</span>
 		</strong><br/>
-		' . $_SESSION['pvewhmcs']['infomsg']['message'] . '
+		' . pvewhmcs_e($_SESSION['pvewhmcs']['infomsg']['message']) . '
 		</div>
 		';
 		unset($_SESSION['pvewhmcs']);
@@ -322,6 +405,33 @@ function pvewhmcs_output($vars) {
 		update_lxc_plan() ;
 	}
 
+	if (isset($_POST['pvewhmcs_delete_action'])) {
+		$deleteAction = (string) $_POST['pvewhmcs_delete_action'];
+		$id = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+
+		if ($id <= 0) {
+			throw new InvalidArgumentException('Invalid delete target.');
+		}
+
+		switch ($deleteAction) {
+			case 'removeplan':
+				remove_plan($id);
+				break;
+			case 'removeippool':
+				removeIpPool($id);
+				break;
+			case 'removeip':
+				$poolId = isset($_POST['pool_id']) ? (int) $_POST['pool_id'] : 0;
+				if ($poolId <= 0) {
+					throw new InvalidArgumentException('Invalid IP pool.');
+				}
+				removeip($id, $poolId);
+				break;
+			default:
+				throw new InvalidArgumentException('Unsupported delete action.');
+		}
+	}
+
 	// NODES / GUESTS tab in ADMIN GUI
 	echo '<div id="nodes" class="tab-pane '.($_GET['tab']=="nodes" ? "active" : "").'" >' ;
 
@@ -340,7 +450,7 @@ function pvewhmcs_output($vars) {
 			// Decrypt server password (same approach as ClientArea)
 			$api_data = array('password2' => $pve->password);
 			$serverpassword = localAPI('DecryptPassword', $api_data);
-			$serverip       = $pve->ipaddress;
+			$serverip       = !empty($pve->hostname) ? $pve->hostname : $pve->ipaddress;
 			$serverusername = $pve->username;
 			$serverlabel    = !empty($pve->name) ? $pve->name : ('Server #' . $pve->id);
 
@@ -495,7 +605,7 @@ function pvewhmcs_output($vars) {
 		foreach ($servers as $pve) {
 			$api_data = array('password2' => $pve->password);
 			$serverpassword = localAPI('DecryptPassword', $api_data);
-			$serverip       = $pve->ipaddress;
+			$serverip       = !empty($pve->hostname) ? $pve->hostname : $pve->ipaddress;
 			$serverusername = $pve->username;
 			$serverlabel    = !empty($pve->name) ? $pve->name : ('Server #' . $pve->id);
 
@@ -618,10 +728,6 @@ function pvewhmcs_output($vars) {
 			lxc_plan_edit($_GET['id']) ;
 	}
 
-	if($_GET['action']=='removeplan') {
-		remove_plan($_GET['id']) ;
-	}
-
 
 	if ($_GET['action']=='add_lxc_plan') {
 		lxc_plan_add() ;
@@ -659,29 +765,29 @@ function pvewhmcs_output($vars) {
 		foreach (Capsule::table('mod_pvewhmcs_plans')->get() as $vm) {
 			echo '<tr>';
 			echo '<td>' . $vm->id . '</td>';
-			echo '<td>' . $vm->title . '</td>';
-			echo '<td>' . $vm->vmtype . '</td>';
-			echo '<td>' . $vm->ostype . '</td>';
-			echo '<td>' . $vm->cpus . '</td>';
-			echo '<td>' . $vm->cores . '</td>';
-			echo '<td>' . $vm->memory . '</td>';
-			echo '<td>' . $vm->balloon . '</td>';
-			echo '<td>' . $vm->swap . '</td>';
-			echo '<td>' . $vm->disk . '</td>';
-			echo '<td>' . $vm->disktype . '</td>';
-			echo '<td>' . $vm->diskio . '</td>';
-			echo '<td>' . $vm->storage . '</td>';
-			echo '<td>' . $vm->netmode . '</td>';
-			echo '<td>' . $vm->bridge . $vm->vmbr . '</td>';
-			echo '<td>' . $vm->netmodel . '</td>';
-			echo '<td>' . $vm->vlanid . '</td>';
-			echo '<td>' . $vm->netrate . '</td>';
-			echo '<td>' . $vm->bw . '</td>';
-			echo '<td>' . $vm->ipv6 . '</td>';
-			echo '<td>' . $vm->unpriv . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->title) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->vmtype) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->ostype) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->cpus) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->cores) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->memory) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->balloon) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->swap) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->disk) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->disktype) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->diskio) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->storage) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->netmode) . '</td>';
+			echo '<td>' . pvewhmcs_e((string) $vm->bridge . (string) $vm->vmbr) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->netmodel) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->vlanid) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->netrate) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->bw) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->ipv6) . '</td>';
+			echo '<td>' . pvewhmcs_e($vm->unpriv) . '</td>';
 			echo '<td>
 			<a href="' . pvewhmcs_BASEURL . '&amp;tab=vmplans&amp;action=editplan&amp;id=' . $vm->id . '&amp;vmtype=' . $vm->vmtype . '"><img height="16" width="16" border="0" alt="Edit" src="images/edit.gif"></a>
-			<a href="' . pvewhmcs_BASEURL . '&amp;tab=vmplans&amp;action=removeplan&amp;id=' . $vm->id . '" onclick="return confirm(\'Plan will be deleted, continue?\')"><img height="16" width="16" border="0" alt="Edit" src="images/delete.gif"></a>
+			' . pvewhmcs_admin_delete_form("removeplan", $vm->id) . '
 			</td>';
 			echo '</tr>';
 		}
@@ -715,14 +821,8 @@ function pvewhmcs_output($vars) {
 	if (isset($_POST['newIPpool'])) {
 		save_ip_pool() ;
 	}
-	if ($_GET['action']=='removeippool') {
-		removeIpPool($_GET['id']) ;
-	}
 	if ($_GET['action']=='list_ips') {
 		list_ips();
-	}
-	if ($_GET['action']=='removeip') {
-		removeip($_GET['id'],$_GET['pool_id']);
 	}
 	echo'
 	</div>
@@ -791,14 +891,15 @@ function pvewhmcs_output($vars) {
 	<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:25px;">
 	<h3 style="margin:0 0 20px 0;color:#5c3d7a;font-weight:600;"><span style="font-size:24px;">&#9881;</span> Module Configuration</h3>
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table style="width:100%;border-collapse:collapse;">
 	<tr>
 		<td style="padding:15px 0;border-bottom:1px solid #eee;width:150px;vertical-align:top;">
 			<label style="font-weight:600;color:#333;">VNC Secret</label>
 		</td>
 		<td style="padding:15px 0;border-bottom:1px solid #eee;">
-			<input type="text" style="width:100%;max-width:300px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;" name="vnc_secret" id="vnc_secret" value="' . $config->vnc_secret . '">
-			<p style="margin:8px 0 0 0;font-size:13px;color:#666;">Password for <code style="background:#f4f0f7;padding:2px 6px;border-radius:3px;color:#5c3d7a;">vnc@pve</code> user. Required for VNC proxying. <a href="https://github.com/The-Network-Crew/Proxmox-VE-for-WHMCS/" target="_blank" style="color:#5c3d7a;"><u>View README</u></a></p>
+			<input type="password" autocomplete="new-password" placeholder="' . (pvewhmcs_has_vnc_secret() ? 'Secret configured — leave blank to keep it' : 'Enter VNC secret') . '" style="width:100%;max-width:300px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;" name="vnc_secret" id="vnc_secret" value="">
+			<p style="margin:8px 0 0 0;font-size:13px;color:#666;">Password for <code style="background:#f4f0f7;padding:2px 6px;border-radius:3px;color:#5c3d7a;">vnc@pve</code>. The stored secret is encrypted by WHMCS and is never rendered back into HTML. Leave blank to keep the existing secret.</p>
 		</td>
 	</tr>
 	<tr>
@@ -806,7 +907,7 @@ function pvewhmcs_output($vars) {
 			<label style="font-weight:600;color:#333;">VMID Start</label>
 		</td>
 		<td style="padding:15px 0;border-bottom:1px solid #eee;">
-			<input type="text" style="width:100%;max-width:300px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;" name="start_vmid" id="start_vmid" value="' . $config->start_vmid . '">
+			<input type="text" style="width:100%;max-width:300px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;" name="start_vmid" id="start_vmid" value="' . (int) $config->start_vmid . '">
 			<p style="margin:8px 0 0 0;font-size:13px;color:#666;">For Guests. Increments until a vacant VMID found. Default is <code style="background:#f4f0f7;padding:2px 6px;border-radius:3px;color:#5c3d7a;">100</code></p>
 		</td>
 	</tr>
@@ -856,7 +957,7 @@ function pvewhmcs_output($vars) {
 	            throw new Exception('Could not decrypt Proxmox server password.');
 	        }
 
-	        $proxmox = new PVE2_API($pve->ipaddress, $pve->username, "pam", $serverpassword);
+	        $proxmox = new PVE2_API(!empty($pve->hostname) ? $pve->hostname : $pve->ipaddress, $pve->username, "pam", $serverpassword);
 	        if (!$proxmox->login()) {
 	            throw new Exception('Unable to log in to PVE API on ' . htmlspecialchars($pve->ipaddress) . '. Check credentials, connectivity & configurations.');
 	        }
@@ -1044,7 +1145,7 @@ function import_guest() {
 
 	// Always show the form for easy further imports
 	if (!empty($resultMsg)) echo $resultMsg;
-	echo '<form method="post">';
+	echo '<form method="post">' . pvewhmcs_admin_csrf_input();
 	echo '<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">';
 	echo '<tr><td class="fieldlabel">PVE VMID</td><td class="fieldarea"><input type="text" name="import_vmid" required></td></tr>';
 	echo '<tr><td class="fieldlabel">Hostname</td><td class="fieldarea"><input type="text" name="import_hostname" required></td></tr>';
@@ -1084,24 +1185,41 @@ function import_guest() {
 // MODULE CONFIG: Commit changes to the database
 function save_config() {
 	try {
+		$startVmid = isset($_POST['start_vmid']) ? (int) $_POST['start_vmid'] : 100;
+		if ($startVmid < 100 || $startVmid > 999999999) {
+			throw new InvalidArgumentException('VMID Start must be between 100 and 999999999.');
+		}
+
+		$debugMode = !empty($_POST['debug_mode']) ? 1 : 0;
+		$newVncSecret = isset($_POST['vnc_secret']) ? trim((string) $_POST['vnc_secret']) : '';
+
+		$updates = array(
+			'start_vmid' => $startVmid,
+			'debug_mode' => $debugMode,
+		);
+
+		if ($newVncSecret !== '') {
+			if (strlen($newVncSecret) < 15) {
+				throw new InvalidArgumentException('VNC Secret must be at least 15 characters.');
+			}
+			$updates['vnc_secret'] = pvewhmcs_encrypt_secret($newVncSecret);
+		} elseif (pvewhmcs_has_vnc_secret()) {
+			// Reading once transparently migrates legacy plaintext to encrypted storage.
+			pvewhmcs_get_vnc_secret();
+		}
+
 		Capsule::connection()->transaction(
-			function ($connectionManager)
+			function ($connectionManager) use ($updates)
 			{
 				/** @var \Illuminate\Database\Connection $connectionManager */
-				$connectionManager->table('mod_pvewhmcs')->update(
-					[
-						'vnc_secret' => $_POST['vnc_secret'],
-						'start_vmid' => $_POST['start_vmid'],
-						'debug_mode' => $_POST['debug_mode'],
-					]
-				);
+				$connectionManager->table('mod_pvewhmcs')->update($updates);
 			}
 		);
 		$_SESSION['pvewhmcs']['infomsg']['title']='Module Config saved.' ;
 		$_SESSION['pvewhmcs']['infomsg']['message']='New options have been successfully saved.' ;
 		header("Location: ".pvewhmcs_BASEURL."&tab=config");
 	} catch (\Exception $e) {
-		echo "Uh oh! That didn't work, but I was able to rollback. {$e->getMessage()}";
+		echo 'Operation failed and was rolled back: ' . pvewhmcs_e($e->getMessage());
 	}
 }
 
@@ -1109,6 +1227,7 @@ function save_config() {
 function qemu_plan_add() {
 	echo '
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Plan Title</td>
@@ -1425,11 +1544,12 @@ function qemu_plan_edit($id) {
 	}
 	echo '
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Plan Title</td>
 	<td class="fieldarea">
-	<input type="text" size="35" name="title" id="title" required value="' . $plan->title . '">
+	<input type="text" size="35" name="title" id="title" required value="' . pvewhmcs_e($plan->title) . '">
 	</td>
 	</tr>
 	<tr>
@@ -1537,49 +1657,49 @@ function qemu_plan_edit($id) {
 	<tr>
 	<td class="fieldlabel">CPU - Sockets</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="cpus" id="cpus" value="' . $plan->cpus . '" required>
+	<input type="text" size="8" name="cpus" id="cpus" value="' . pvewhmcs_e($plan->cpus) . '" required>
 	The number of CPU Sockets (typically 1-4). Governed by your physical Server.
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">CPU - Cores</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="cores" id="cores" value="' . $plan->cores . '" required>
+	<input type="text" size="8" name="cores" id="cores" value="' . pvewhmcs_e($plan->cores) . '" required>
 	The number of CPU Cores per Socket (1-N). Guest Compute = allocated Sockets * Cores.
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">CPU - Limit</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="cpulimit" id="cpulimit" value="' . $plan->cpulimit . '" required>
+	<input type="text" size="8" name="cpulimit" id="cpulimit" value="' . pvewhmcs_e($plan->cpulimit) . '" required>
 	Limit of CPU usage. Note if the computer has 2 CPUs, it has total of "2" CPU time. Value "0" indicates no CPU limit.
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">CPU - Weighting</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="cpuunits" id="cpuunits" value="' . $plan->cpuunits . '" required>
+	<input type="text" size="8" name="cpuunits" id="cpuunits" value="' . pvewhmcs_e($plan->cpuunits) . '" required>
 	Number is relative to weights of all the other running VMs. 8 - 500000 recommended 1024. Disable fair-scheduler by setting this to 0.
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">RAM - Memory</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="memory" id="memory" required value="' . $plan->memory . '">
+	<input type="text" size="8" name="memory" id="memory" required value="' . pvewhmcs_e($plan->memory) . '">
 	RAM capacity in Megabytes eg. 1024 = 1GB
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">RAM - Balloon</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="balloon" id="balloon" required value="' . $plan->balloon . '">
+	<input type="text" size="8" name="balloon" id="balloon" required value="' . pvewhmcs_e($plan->balloon) . '">
 	Balloon capacity in Megabytes eg. 1024 = 1GB (0 = disabled)
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">Disk - Capacity</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="disk" id="disk" required value="' . $plan->disk . '">
+	<input type="text" size="8" name="disk" id="disk" required value="' . pvewhmcs_e($plan->disk) . '">
 	HDD/SSD storage in Gigabytes eg. 1024 = 1TB
 	</td>
 	</tr>
@@ -1622,14 +1742,14 @@ function qemu_plan_edit($id) {
 	<tr>
 	<td class="fieldlabel">Disk - I/O Cap</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="diskio" id="diskio" required value="' . $plan->diskio . '">
+	<input type="text" size="8" name="diskio" id="diskio" required value="' . pvewhmcs_e($plan->diskio) . '">
 	Limit of Disk I/O in KiB/s. 0 for unrestricted storage access for Guests.
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">PVE Store - Name</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="storage" id="storage" required value="' . $plan->storage . '">
+	<input type="text" size="8" name="storage" id="storage" required value="' . pvewhmcs_e($plan->storage) . '">
 	Name of VM/CT Storage on Proxmox VE hypervisor. <code>local/local-lvm/etc</code>
 	</td>
 	</tr>
@@ -1648,14 +1768,14 @@ function qemu_plan_edit($id) {
 	<tr>
 	<td class="fieldlabel">Network - Rate</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="netrate" id="netrate" value="' . $plan->netrate . '">
+	<input type="text" size="8" name="netrate" id="netrate" value="' . pvewhmcs_e($plan->netrate) . '">
 	Network Rate Limit in Megabits/Second. Zero for unlimited.
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">Network - Cap</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="bw" id="bw" value="' . $plan->bw . '">
+	<input type="text" size="8" name="bw" id="bw" value="' . pvewhmcs_e($plan->bw) . '">
 	Monthly Data Transfer Cap in Gigabytes. Blank for unlimited.
 	</td>
 	</tr>
@@ -1685,14 +1805,14 @@ function qemu_plan_edit($id) {
 	<tr>
 	<td class="fieldlabel">Network - Interface</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="bridge" id="bridge" value="' . $plan->bridge . '">
+	<input type="text" size="8" name="bridge" id="bridge" value="' . pvewhmcs_e($plan->bridge) . '">
 	Network / Bridge / NIC name. PVE default bridge prefix is "vmbr".
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">Network - Bridge/NIC ID</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="vmbr" id="vmbr" value="' . $plan->vmbr . '">
+	<input type="text" size="8" name="vmbr" id="vmbr" value="' . pvewhmcs_e($plan->vmbr) . '">
 	Interface ID. PVE Bridge default is 0, for "vmbr0". PVE SDN, leave blank.
 	</td>
 	</tr>
@@ -1737,6 +1857,7 @@ function qemu_plan_edit($id) {
 function lxc_plan_add() {
 	echo '
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Plan Title</td>
@@ -1879,73 +2000,74 @@ function lxc_plan_edit($id) {
 	}
 	echo '
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Plan Title</td>
 	<td class="fieldarea">
-	<input type="text" size="35" name="title" id="title" required value="' . $plan->title . '">
+	<input type="text" size="35" name="title" id="title" required value="' . pvewhmcs_e($plan->title) . '">
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">CPU - Limit</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="cpulimit" id="cpulimit" value="' . $plan->cpulimit . '" required>
+	<input type="text" size="8" name="cpulimit" id="cpulimit" value="' . pvewhmcs_e($plan->cpulimit) . '" required>
 	Limit of CPU usage. Default is 1. If the computer has 2 CPUs, it has total of "2" CPU time. Value "0" indicates no CPU limit.
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">CPU - Weighting</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="cpuunits" id="cpuunits" value="' . $plan->cpuunits . '" required>
+	<input type="text" size="8" name="cpuunits" id="cpuunits" value="' . pvewhmcs_e($plan->cpuunits) . '" required>
 	Number is relative to weights of all the other running VMs. 8 - 500000, recommend 1024.
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">RAM - Memory</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="memory" id="memory" required value="' . $plan->memory . '">
+	<input type="text" size="8" name="memory" id="memory" required value="' . pvewhmcs_e($plan->memory) . '">
 	RAM capacity in Megabytes eg. 1024 = 1GB
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">Swap - Space</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="swap" id="swap" value="' . $plan->swap . '">
+	<input type="text" size="8" name="swap" id="swap" value="' . pvewhmcs_e($plan->swap) . '">
 	Swap capacity in Megabytes eg. 1024 = 1GB
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">Disk - Capacity</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="disk" id="disk" value="' . $plan->disk . '" required>
+	<input type="text" size="8" name="disk" id="disk" value="' . pvewhmcs_e($plan->disk) . '" required>
 	HDD/SSD storage in Gigabytes eg. 1024 = 1TB
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">Disk - I/O Cap</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="diskio" id="diskio" value="' . $plan->diskio . '" required>
+	<input type="text" size="8" name="diskio" id="diskio" value="' . pvewhmcs_e($plan->diskio) . '" required>
 	Limit of Disk I/O in KiB/s. 0 for unrestricted storage access for Guests.
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">PVE Store - Name</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="storage" id="storage" value="' . $plan->storage . '" required>
+	<input type="text" size="8" name="storage" id="storage" value="' . pvewhmcs_e($plan->storage) . '" required>
 	Name of VM/CT Storage on Proxmox VE hypervisor. <code>local/local-lvm/etc</code>
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">Network - Interface</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="bridge" id="bridge" value="' . $plan->bridge . '">
+	<input type="text" size="8" name="bridge" id="bridge" value="' . pvewhmcs_e($plan->bridge) . '">
 	Network / Bridge / NIC name. PVE default bridge prefix is "vmbr".
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">Network - Bridge/NIC ID</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="vmbr" id="vmbr" value="' . $plan->vmbr . '">
+	<input type="text" size="8" name="vmbr" id="vmbr" value="' . pvewhmcs_e($plan->vmbr) . '">
 	Interface ID. PVE Bridge default is 0, for "vmbr0". PVE SDN, leave blank.
 	</td>
 	</tr>
@@ -1959,14 +2081,14 @@ function lxc_plan_edit($id) {
 	<tr>
 	<td class="fieldlabel">Network - Rate</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="netrate" id="netrate" value="' . $plan->netrate . '">
+	<input type="text" size="8" name="netrate" id="netrate" value="' . pvewhmcs_e($plan->netrate) . '">
 	Network Rate Limit in Megabits/Second. Zero for unlimited.
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">Network - Cap</td>
 	<td class="fieldarea">
-	<input type="text" size="8" name="bw" id="bw" value="' . $plan->bw . '">
+	<input type="text" size="8" name="bw" id="bw" value="' . pvewhmcs_e($plan->bw) . '">
 	Monthly Data Transfer Cap in Gigabytes. Blank for unlimited.
 	</td>
 	</tr>
@@ -2055,7 +2177,7 @@ function save_qemu_plan() {
 		$_SESSION['pvewhmcs']['infomsg']['message']='Saved the QEMU Plan successfully.' ;
 		header("Location: ".pvewhmcs_BASEURL."&tab=vmplans&action=planlist");
 	} catch (\Exception $e) {
-		echo "Uh oh! Inserting didn't work, but I was able to rollback. {$e->getMessage()}";
+		echo 'Operation failed and was rolled back: ' . pvewhmcs_e($e->getMessage());
 	}
 }
 
@@ -2142,7 +2264,7 @@ function save_lxc_plan() {
 		$_SESSION['pvewhmcs']['infomsg']['message']='Saved the LXC Plan successfully.' ;
 		header("Location: ".pvewhmcs_BASEURL."&tab=vmplans&action=planlist");
 	} catch (\Exception $e) {
-		echo "Uh oh! Inserting didn't work, but I was able to rollback. {$e->getMessage()}";
+		echo 'Operation failed and was rolled back: ' . pvewhmcs_e($e->getMessage());
 	}
 }
 
@@ -2185,11 +2307,11 @@ function list_ip_pools() {
 	foreach (Capsule::table('mod_pvewhmcs_ip_pools')->get() as $pool) {
 		echo '<tr>';
 		echo '<td>' . $pool->id . '</td>';
-		echo '<td>' . $pool->title . '</td>';
-		echo '<td>' . $pool->gateway . '</td>';
+		echo '<td>' . pvewhmcs_e($pool->title) . '</td>';
+		echo '<td>' . pvewhmcs_e($pool->gateway) . '</td>';
 		echo '<td>
 		<a href="' . pvewhmcs_BASEURL . '&amp;tab=ippools&amp;action=list_ips&amp;id=' . $pool->id . '"><img height="16" width="16" border="0" alt="Info" src="images/edit.gif"></a>
-		<a href="' . pvewhmcs_BASEURL . '&amp;tab=ippools&amp;action=removeippool&amp;id=' . $pool->id . '" onclick="return confirm(\'Pool and all IPv4 Addresses assigned to it will be deleted, continue?\')"><img height="16" width="16" border="0" alt="Remove" src="images/delete.gif"></a>
+		' . pvewhmcs_admin_delete_form("removeippool", $pool->id) . '
 		</td>';
 		echo '</tr>';
 	}
@@ -2200,6 +2322,7 @@ function list_ip_pools() {
 function add_ip_pool() {
 	echo '
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Pool Title</td>
@@ -2237,12 +2360,16 @@ function save_ip_pool() {
 		$_SESSION['pvewhmcs']['infomsg']['message']='New IPv4 Pool saved successfully.' ;
 		header("Location: ".pvewhmcs_BASEURL."&tab=ippools&action=list_ip_pools");
 	} catch (\Exception $e) {
-		echo "Uh oh! Inserting didn't work, but I was able to rollback. {$e->getMessage()}";
+		echo 'Operation failed and was rolled back: ' . pvewhmcs_e($e->getMessage());
 	}
 }
 
 // IP POOL FORM ACTION: Remove Pool
 function removeIpPool($id) {
+	$id = (int) $id;
+	if ($id <= 0) {
+		throw new InvalidArgumentException('Invalid IP pool ID.');
+	}
 	Capsule::table('mod_pvewhmcs_ip_addresses')->where('pool_id', '=', $id)->delete();
 	Capsule::table('mod_pvewhmcs_ip_pools')->where('id', '=', $id)->delete();
 
@@ -2254,61 +2381,141 @@ function removeIpPool($id) {
 // IP POOL FORM ACTION: Add IP to Pool
 function add_ip_2_pool() {
 	require_once(ROOTDIR.'/modules/addons/pvewhmcs/Ipv4/Subnet.php');
-	echo '<form method="post">
-	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
+
+	echo '<form method="post">';
+	echo pvewhmcs_admin_csrf_input();
+	echo '<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">IPv4 Pool</td>
 	<td class="fieldarea">
-	<select class="form-control select-inline" name="pool_id">';
+	<select class="form-control select-inline" name="pool_id" required>';
+
+	$gateways = array();
 	foreach (Capsule::table('mod_pvewhmcs_ip_pools')->get() as $pool) {
-		echo '<option value="' . $pool->id . '">' . $pool->title . '</option>';
-		$gateways[] = $pool->gateway;
+		echo '<option value="' . (int) $pool->id . '">' . pvewhmcs_e($pool->title) . '</option>';
+		if (filter_var($pool->gateway, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+			$gateways[] = (string) $pool->gateway;
+		}
 	}
+
 	echo '</select>
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">Address/Prefix</td>
 	<td class="fieldarea">
-	<input type="text" name="ipblock"/>
-	IPv4 prefix with CIDR e.g. 172.16.255.230/27, or for single /32 address don\'t use CIDR
+	<input type="text" name="ipblock" required/>
+	IPv4 prefix with CIDR e.g. 172.16.255.230/27, or a single IPv4 address.
+	Maximum import size: 4096 addresses.
 	</td>
 	</tr>
 	</table>
 	<input type="submit" name="assignIP2pool" value="Add"/>
 	</form>';
-	if (isset($_POST['assignIP2pool'])) {
-			// check if single IP address
-		if ((strpos($_POST['ipblock'],'/'))!=false) {
-			$subnet=Ipv4_Subnet::fromString($_POST['ipblock']);
-			$ips = $subnet->getIterator();
-			foreach($ips as $ip) {
-				if (!in_array($ip, $gateways)) {
-					Capsule::table('mod_pvewhmcs_ip_addresses')->insert(
-						[
-							'pool_id' => $_POST['pool_id'],
-							'ipaddress' => $ip,
-							'mask' => $subnet->getNetmask(),
-						]
-					);
+
+	if (!isset($_POST['assignIP2pool'])) {
+		return;
+	}
+
+	$poolId = isset($_POST['pool_id']) ? (int) $_POST['pool_id'] : 0;
+	$ipBlock = isset($_POST['ipblock']) ? trim((string) $_POST['ipblock']) : '';
+
+	if (
+		$poolId <= 0
+		|| !Capsule::table('mod_pvewhmcs_ip_pools')->where('id', '=', $poolId)->exists()
+	) {
+		throw new InvalidArgumentException('Invalid IPv4 pool.');
+	}
+
+	if ($ipBlock === '' || strlen($ipBlock) > 64) {
+		throw new InvalidArgumentException('Invalid IPv4 address/prefix.');
+	}
+
+	$rows = array();
+
+	if (strpos($ipBlock, '/') !== false) {
+		if (!preg_match('#^([^/]+)/([0-9]{1,2})$#', $ipBlock, $matches)) {
+			throw new InvalidArgumentException('Invalid IPv4 CIDR notation.');
+		}
+
+		$baseIp = $matches[1];
+		$prefix = (int) $matches[2];
+
+		if (
+			!filter_var($baseIp, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+			|| $prefix < 0
+			|| $prefix > 32
+		) {
+			throw new InvalidArgumentException('Invalid IPv4 CIDR notation.');
+		}
+
+		$addressCount = 2 ** (32 - $prefix);
+		if ($addressCount > 4096) {
+			throw new InvalidArgumentException(
+				'IPv4 import is limited to 4096 addresses. Use /20 or a smaller range.'
+			);
+		}
+
+		$subnet = Ipv4_Subnet::fromString($ipBlock);
+		$mask = (string) $subnet->getNetmask();
+
+		foreach ($subnet->getIterator() as $ip) {
+			$ip = (string) $ip;
+
+			if (
+				!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+				|| in_array($ip, $gateways, true)
+			) {
+				continue;
+			}
+
+			$rows[] = array(
+				'pool_id' => $poolId,
+				'ipaddress' => $ip,
+				'mask' => $mask,
+			);
+		}
+	} else {
+		if (!filter_var($ipBlock, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+			throw new InvalidArgumentException('Invalid IPv4 address.');
+		}
+
+		if (!in_array($ipBlock, $gateways, true)) {
+			$rows[] = array(
+				'pool_id' => $poolId,
+				'ipaddress' => $ipBlock,
+				'mask' => '255.255.255.255',
+			);
+		}
+	}
+
+	// The schema has a unique IPv4 key. Avoid duplicate insert exceptions and
+	// use bounded batches to keep DB work predictable.
+	if (!empty($rows)) {
+		$addresses = array_column($rows, 'ipaddress');
+		$existing = Capsule::table('mod_pvewhmcs_ip_addresses')
+			->whereIn('ipaddress', $addresses)
+			->pluck('ipaddress')
+			->all();
+		$existingLookup = array_fill_keys(array_map('strval', $existing), true);
+
+		$rows = array_values(array_filter($rows, function ($row) use ($existingLookup) {
+			return !isset($existingLookup[(string) $row['ipaddress']]);
+		}));
+
+		Capsule::connection()->transaction(function () use ($rows) {
+			foreach (array_chunk($rows, 250) as $chunk) {
+				if (!empty($chunk)) {
+					Capsule::table('mod_pvewhmcs_ip_addresses')->insert($chunk);
 				}
 			}
-		}
-		else {
-			if (!in_array($_POST['ipblock'], $gateways)) {
-				Capsule::table('mod_pvewhmcs_ip_addresses')->insert(
-					[
-						'pool_id' => $_POST['pool_id'],
-						'ipaddress' => $_POST['ipblock'],
-						'mask' => '255.255.255.255',
-					]
-				);
-			}
-		}
-		header("Location: " . pvewhmcs_BASEURL . "&tab=ippools&action=list_ips&id=" . $_POST['pool_id']);
-		$_SESSION['pvewhmcs']['infomsg']['title'] = 'IPv4 Address/Blocks added to Pool.';
-		$_SESSION['pvewhmcs']['infomsg']['message'] = 'You can remove IPv4 Addresses from the pool.';
+		});
 	}
+
+	$_SESSION['pvewhmcs']['infomsg']['title'] = 'IPv4 Address/Blocks added to Pool.';
+	$_SESSION['pvewhmcs']['infomsg']['message'] = 'Validated IPv4 addresses were added; duplicates and pool gateways were skipped.';
+	header("Location: " . pvewhmcs_BASEURL . "&tab=ippools&action=list_ips&id=" . $poolId);
+	exit;
 }
 
 // IP POOL FORM: List IPs in Pool
@@ -2344,9 +2551,11 @@ function list_ips() {
             echo 'In use: <a href="' . $serviceLink . '" target="_blank">Service #' . $service->id . '</a>';
         } else {
             // IP is free (not in tblhosting OR status is Terminated/Cancelled/Fraud/Pending)
-            echo '<a href="' . pvewhmcs_BASEURL . '&amp;tab=ippools&amp;action=removeip&amp;pool_id=' . $ip->pool_id . '&amp;id=' . $ip->id . '" onclick="return confirm(\'IPv4 Address will be deleted from the pool, continue?\')">
-                    <img height="16" width="16" border="0" alt="Edit" src="images/delete.gif">
-                  </a>';
+            echo pvewhmcs_admin_delete_form(
+                'removeip',
+                (int) $ip->id,
+                array('pool_id' => (int) $ip->pool_id)
+            );
         }
         
         echo '</td></tr>';
@@ -2356,6 +2565,11 @@ function list_ips() {
 
 // IP POOL FORM ACTION: Remove IP from Pool
 function removeip($id, $pool_id) {
+	$id = (int) $id;
+	$pool_id = (int) $pool_id;
+	if ($id <= 0 || $pool_id <= 0) {
+		throw new InvalidArgumentException('Invalid IP or pool ID.');
+	}
 	Capsule::table('mod_pvewhmcs_ip_addresses')->where('id', '=', $id)->delete();
 	header("Location: " . pvewhmcs_BASEURL . "&tab=ippools&action=list_ips&id=" . $pool_id);
 	$_SESSION['pvewhmcs']['infomsg']['title'] = 'IPv4 Address deleted.';

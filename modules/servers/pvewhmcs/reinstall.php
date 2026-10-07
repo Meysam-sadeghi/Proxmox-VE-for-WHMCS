@@ -331,8 +331,10 @@ function pvewhmcs_reinstall_connect(array $params)
         throw new Exception('Unable to decrypt the Proxmox API credential.');
     }
 
+    $apiHost = !empty($server->hostname) ? $server->hostname : $server->ipaddress;
+
     $api = new PVE2_API(
-        $server->ipaddress,
+        $apiHost,
         $server->username,
         'pam',
         $decrypted['password'],

@@ -1,0 +1,74 @@
+name: Security Regression Checks
+
+on:
+  push:
+    paths:
+      - 'modules/**'
+      - '.github/workflows/security-regression.yml'
+  pull_request:
+    paths:
+      - 'modules/**'
+      - '.github/workflows/security-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  security-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reject insecure PVE TLS defaults
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RIn --include='*.php' 'CURLOPT_SSL_VERIFYPEER, false' modules/addons/pvewhmcs modules/servers/pvewhmcs
+          ! grep -RIn --include='*.php' 'CURLOPT_SSL_VERIFYHOST, false' modules/addons/pvewhmcs modules/servers/pvewhmcs
+          grep -Fq '$verify_ssl = true' modules/addons/pvewhmcs/proxmox.php
+
+      - name: Require root credential prohibition
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'root@pam credentials are prohibited' modules/addons/pvewhmcs/proxmox.php
+          grep -Fq 'PVEAPIToken=' modules/addons/pvewhmcs/proxmox.php
+
+      - name: Keep console tickets out of public HTTP links
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -InE 'novnc_router\.php\?.*(pveticket|vncticket|host=|port=|path=)' modules/servers/pvewhmcs/pvewhmcs.php
+          ! grep -Fq "\$_GET['host']" modules/servers/pvewhmcs/novnc_router.php
+          ! grep -Fq "\$_GET['port']" modules/servers/pvewhmcs/novnc_router.php
+          ! grep -Fq "\$_GET['path']" modules/servers/pvewhmcs/novnc_router.php
+          ! grep -Fq "\$_GET['pveticket']" modules/servers/pvewhmcs/novnc_router.php
+          ! grep -Fq "\$_GET['vncticket']" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "where('userid', '=', \$clientId)" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "Referrer-Policy: no-referrer" modules/servers/pvewhmcs/novnc_router.php
+
+      - name: Keep addon deletes POST-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -InE "action=(removeplan|removeippool|removeip)" modules/addons/pvewhmcs/pvewhmcs.php
+          grep -Fq "check_token();" modules/addons/pvewhmcs/pvewhmcs.php
+          grep -Fq "pvewhmcs_delete_action" modules/addons/pvewhmcs/pvewhmcs.php
+
+      - name: Keep VNC secret encrypted and masked
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq "pvewhmcs_encrypt_secret" modules/addons/pvewhmcs/security.php
+          grep -Fq 'type="password"' modules/addons/pvewhmcs/pvewhmcs.php
+          ! grep -InE 'name="vnc_secret"[^>]*value="[^"]+"' modules/addons/pvewhmcs/pvewhmcs.php
+
+      - name: Keep ZRLE CPU bound guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'if (i + length > tileSize)' modules/servers/pvewhmcs/novnc/core/decoders/zrle.js
+
+      - name: JavaScript syntax check for patched noVNC decoder
+        run: node --check modules/servers/pvewhmcs/novnc/core/decoders/zrle.js

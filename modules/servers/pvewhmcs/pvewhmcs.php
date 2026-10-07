@@ -28,6 +28,8 @@ if (file_exists('../modules/addons/pvewhmcs/proxmox.php'))
 else
 	require_once(ROOTDIR . '/modules/addons/pvewhmcs/proxmox.php');
 
+require_once(ROOTDIR . '/modules/addons/pvewhmcs/security.php');
+
 // Client reinstall/rebuild workflow (Proxmox VE 9+)
 require_once(__DIR__ . '/reinstall.php');
 
@@ -36,6 +38,23 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 
 // Prepare to source Guest type
 global $guest;
+
+/**
+ * Build a deliberately small, non-secret context for WHMCS module logging.
+ *
+ * Never pass the raw provisioning $params array to logModuleCall(): it can
+ * contain PVE credentials and customer/root passwords.
+ */
+function pvewhmcs_safe_log_context(array $params) {
+	return array(
+		'serviceid' => isset($params['serviceid']) ? (int) $params['serviceid'] : null,
+		'userid' => isset($params['userid'])
+			? (int) $params['userid']
+			: (isset($params['clientsdetails']['userid']) ? (int) $params['clientsdetails']['userid'] : null),
+		'pid' => isset($params['pid']) ? (int) $params['pid'] : null,
+		'serverid' => isset($params['serverid']) ? (int) $params['serverid'] : null,
+	);
+}
 
 // Fix the Server Test showing "Pvewhmcs" instead of pretty name
 // ref: https://developers.whmcs.com/provisioning-modules/meta-data-params/
@@ -103,6 +122,9 @@ function pvewhmcs_ConfigOptions() {
 	return $configarray;
 }
 
+// SECURITY: Module logs must never receive raw $params, passwords, API-token
+// secrets, PVE tickets, CSRF tokens, or VNC tickets.
+//
 // PVE API FUNCTION: Create the Service on the Hypervisor
 function pvewhmcs_CreateAccount($params) {
 	// Make sure "WHMCS Admin > Products/Services > Proxmox-based Service -> Plan + Pool" are set. Else, fail early. (Issue #36)
@@ -120,7 +142,7 @@ function pvewhmcs_CreateAccount($params) {
 	$plan = Capsule::table('mod_pvewhmcs_plans')->where('id', '=', $params['configoption1'])->get()[0];
 
 	// PVE Host - Connection Info
-	$serverip = $params["serverip"];
+	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 	$serverusername = $params["serverusername"];
 	$serverpassword = $params["serverpassword"];
 	$serverport = $params["serverport"];
@@ -178,11 +200,15 @@ function pvewhmcs_CreateAccount($params) {
 					'pvewhmcs',
 					'Node Selection Debug',
 					array(
-						'TPL_Node_QEMU_Input' => $params['customfields']['TPL_Node_QEMU'],
-						'ALL_Custom_Fields' => $params['customfields'],
-						'ALL_Config_Options' => $params['configoptions'],
-						'Available_Nodes' => $nodes,
-						'Selected_Template_Node' => $template_node
+						'serviceid' => (int) $params['serviceid'],
+						'template_vmid' => isset($params['customfields']['KVMTemplate'])
+							? (int) $params['customfields']['KVMTemplate']
+							: null,
+						'tpl_node_input' => isset($params['customfields']['TPL_Node_QEMU'])
+							? (string) $params['customfields']['TPL_Node_QEMU']
+							: '',
+						'available_nodes' => $nodes,
+						'selected_template_node' => $template_node
 					),
 					'Checking if custom field is empty or fallback triggered'
 				);
@@ -556,8 +582,8 @@ function pvewhmcs_CreateAccount($params) {
 				logModuleCall(
 					'pvewhmcs',
 					__FUNCTION__,
-					$params,
-					$e->getMessage() . $e->getTraceAsString()
+					pvewhmcs_safe_log_context($params),
+					$e->getMessage()
 				);
 			}
 			return $e->getMessage();
@@ -638,7 +664,7 @@ function pvewhmcs_find_next_available_vmid($proxmox, $node, $start_vmid) {
 function pvewhmcs_TestConnection(array $params) {
 	try {
 		// Call the service's connection test function
-		$serverip = $params["serverip"];
+		$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 		$serverusername = $params["serverusername"];
 		$serverpassword = $params["serverpassword"];
 		$serverport = $params["serverport"];
@@ -654,9 +680,8 @@ function pvewhmcs_TestConnection(array $params) {
 		logModuleCall(
 			'pvewhmcs',
 			__FUNCTION__,
-			$params,
-			$e->getMessage(),
-			$e->getTraceAsString()
+			pvewhmcs_safe_log_context($params),
+			$e->getMessage()
 		);
 		// Set the error message as a failure
 		$success = false;
@@ -671,7 +696,7 @@ function pvewhmcs_TestConnection(array $params) {
 
 // PVE API FUNCTION, ADMIN: Suspend a Service on the hypervisor
 function pvewhmcs_SuspendAccount(array $params) {
-	$serverip = $params["serverip"];
+	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 	$serverusername = $params["serverusername"];
 	$serverpassword = $params["serverpassword"];
 	$serverport = $params["serverport"];
@@ -713,7 +738,7 @@ function pvewhmcs_SuspendAccount(array $params) {
 
 // PVE API FUNCTION, ADMIN: Unsuspend a Service on the hypervisor
 function pvewhmcs_UnsuspendAccount(array $params) {
-	$serverip = $params["serverip"];
+	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 	$serverusername = $params["serverusername"];
 	$serverpassword = $params["serverpassword"];
 	$serverport = $params["serverport"];
@@ -763,7 +788,7 @@ function pvewhmcs_UnsuspendAccount(array $params) {
 //   4. All checks passed: stop the guest (if running), delete it from PVE,
 //      then remove the DB row.
 function pvewhmcs_TerminateAccount(array $params) {
-	$serverip = $params["serverip"];
+	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 	$serverusername = $params["serverusername"];
 	$serverpassword = $params["serverpassword"];
 	$serverport = $params["serverport"];
@@ -820,209 +845,9 @@ function pvewhmcs_TerminateAccount(array $params) {
 	}
 }
 
-// GENERAL CLASS: WHMCS Decrypter
-class pvewhmcs_hash_encryption {
-	/**
-	 * Hashed value of the user provided encryption key
-	 * @var string
-	 **/
-	var $hash_key;
-	
-	/**
-	 * String length of hashed values using the current algorithm
-         * @var int
-	 **/
-	var $hash_length;
-	
-	/**
-	 * Switch base64 enconding on / off
-         * @var bool    true = use base64, false = binary output / input
-	 **/
-	var $base64;
-	
-	/**
-	 * Secret value added to randomize output and protect the user provided key
-         * @var string  Change this value to add more randomness to your encryption
-	 **/
-	var $salt = 'Change this to any secret value you like. "d41d8cd98f00b204e9800998ecf8427e" might be a good example.';
-
-	/**
-	 * Constructor method
-	 *
-	 * Used to set key for encryption and decryption.
-     * @param       string  $key    Your secret key used for encryption and decryption
-     * @param       bool   $base64 Enable base64 en- / decoding
-	 * @return mixed
-	 */
-	function pvewhmcs_hash_encryption($key, $base64 = true) {
-
-		global $cc_encryption_hash;
-
-		// Toggle base64 usage on / off
-		$this->base64 = $base64;
-
-		// Instead of using the key directly we compress it using a hash function
-		$this->hash_key = $this->_hash($key);
-
-		// Remember length of hashvalues for later use
-		$this->hash_length = strlen($this->hash_key);
-	}
-
-	/**
-	 * Method used for encryption
-         * @param       string  $string Message to be encrypted
-         * @return string       Encrypted message
-	 */
-	function encrypt($string) {
-		$iv = $this->_generate_iv();
-
-		// Clear output
-		$out = '';
-
-		// First block of output is ($this->hash_hey XOR IV)
-		for($c=0;$c < $this->hash_length;$c++) {
-			$out .= chr(ord($iv[$c]) ^ ord($this->hash_key[$c]));
-		}
-
-		// Use IV as first key
-		$key = $iv;
-		$c = 0;
-
-		// Go through input string
-		while($c < strlen($string)) {
-			// If we have used all characters of the current key we switch to a new one
-			if(($c != 0) and ($c % $this->hash_length == 0)) {
-				// New key is the hash of current key and last block of plaintext
-				$key = $this->_hash($key . substr($string,$c - $this->hash_length,$this->hash_length));
-			}
-			// Generate output by xor-ing input and key character for character
-			$out .= chr(ord($key[$c % $this->hash_length]) ^ ord($string[$c]));
-			$c++;
-		}
-		// Apply base64 encoding if necessary
-		if($this->base64) $out = base64_encode($out);
-		return $out;
-	}
-
-	/**
-	 * Method used for decryption
-         * @param       string  $string Message to be decrypted
-         * @return string       Decrypted message
-	 */
-	function decrypt($string) {
-		// Apply base64 decoding if necessary
-		if($this->base64) $string = base64_decode($string);
-
-		// Extract encrypted IV from input
-		$tmp_iv = substr($string,0,$this->hash_length);
-
-		// Extract encrypted message from input
-		$string = substr($string,$this->hash_length,strlen($string) - $this->hash_length);
-		$iv = $out = '';
-
-		// Regenerate IV by xor-ing encrypted IV from block 1 and $this->hashed_key
-		// Mathematics: (IV XOR KeY) XOR Key = IV
-		for($c=0;$c < $this->hash_length;$c++)
-		{
-			$iv .= chr(ord($tmp_iv[$c]) ^ ord($this->hash_key[$c]));
-		}
-		// Use IV as key for decrypting the first block cyphertext
-		$key = $iv;
-		$c = 0;
-
-		// Loop through the whole input string
-		while($c < strlen($string)) {
-			// If we have used all characters of the current key we switch to a new one
-			if(($c != 0) and ($c % $this->hash_length == 0)) {
-				// New key is the hash of current key and last block of plaintext
-				$key = $this->_hash($key . substr($out,$c - $this->hash_length,$this->hash_length));
-			}
-			// Generate output by xor-ing input and key character for character
-			$out .= chr(ord($key[$c % $this->hash_length]) ^ ord($string[$c]));
-			$c++;
-		}
-		return $out;
-	}
-
-	/**
-	 * Hashfunction used for encryption
-	 *
-	 * This class hashes any given string using the best available hash algorithm.
-	 * Currently support for md5 and sha1 is provided. In theory even crc32 could be used
-	 * but I don't recommend this.
-	 *
-         * @access      private
-         * @param       string  $string Message to hashed
-         * @return string       Hash value of input message
-	 */
-	function _hash($string) {
-		// Use sha1() if possible, php versions >= 4.3.0 and 5
-		if(function_exists('sha1')) {
-			$hash = sha1($string);
-		} else {
-			// Fall back to md5(), php versions 3, 4, 5
-			$hash = md5($string);
-		}
-		$out ='';
-		// Convert hexadecimal hash value to binary string
-		for($c=0;$c<strlen($hash);$c+=2) {
-			$out .= $this->_hex2chr($hash[$c] . $hash[$c+1]);
-		}
-		return $out;
-	}
-
-	/**
-	 * Generate a random string to initialize encryption
-	 *
-	 * This method will return a random binary string IV ( = initialization vector).
-	 * The randomness of this string is one of the crucial points of this algorithm as it
-	 * is the basis of encryption. The encrypted IV will be added to the encrypted message
-	 * to make decryption possible. The transmitted IV will be encoded using the user provided key.
-	 *
-         * @todo        Add more random sources.
-         * @access      private
-         * @see function        pvewhmcs_hash_encryption
-         * @return string       Binary pseudo random string
-	 **/
-	function _generate_iv() {
-		// Initialize pseudo random generator
-		srand ((double)microtime()*1000000);
-
-		// Collect random data.
-		// Add as many "pseudo" random sources as you can find.
-		// Possible sources: Memory usage, diskusage, file and directory content...
-		$iv  = $this->salt;
-		$iv .= rand(0,getrandmax());
-		// Changed to serialize as the second parameter to print_r is not available in php prior to version 4.4
-		$iv .= serialize($GLOBALS);
-		return $this->_hash($iv);
-	}
-
-	/**
-	 * Convert hexadecimal value to a binary string
-	 *
-	 * This method converts any given hexadecimal number between 00 and ff to the corresponding ASCII char
-	 *
-         * @access      private
-         * @param       string  Hexadecimal number between 00 and ff
-         * @return      string  Character representation of input value
-	 **/
-	function _hex2chr($num) {
-		return chr(hexdec($num));
-	}
-}
-
-// GENERAL FUNCTION: Server PW from WHMCS DB
-function pvewhmcs_get_whmcs_server_password($enc_pass){
-	global $cc_encryption_hash;
-	// Include WHMCS database configuration file
-	include_once(dirname(dirname(dirname(dirname(__FILE__)))) . '/configuration.php');
-	$key1 = md5 (md5 ($cc_encryption_hash));
-	$key2 = md5 ($cc_encryption_hash);
-	$key = $key1 . $key2;
-	$hasher = new pvewhmcs_hash_encryption($key);
-	return $hasher->decrypt($enc_pass);
-}
+// Legacy custom SHA1/MD5/XOR WHMCS decryption code was removed.
+// Server credentials are decrypted exclusively through the supported WHMCS
+// DecryptPassword Local API at the point of use.
 
 // MODULE BUTTONS: Admin Interface button regos
 function pvewhmcs_AdminCustomButtonArray() {
@@ -1117,7 +942,7 @@ function pvewhmcs_ClientArea($params) {
 	$pveserver=Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
 
 	// Get IP and User for Hypervisor
-	$serverip = $pveserver->ipaddress;
+	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
 	// Password access is different in Client Area, so retrieve and decrypt
 	$api_data = array(
@@ -1142,14 +967,18 @@ function pvewhmcs_ClientArea($params) {
 		$cluster_resources = $proxmox->get('/cluster/resources');
 		$vm_status = null;
 		// DEBUG - Log the /cluster/resources and /config for the VM/CT, if enabled
-		$cluster_encoded = json_encode($cluster_resources);
-		$vmspecs_encoded = json_encode($vm_config);
 		if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
 			logModuleCall(
 				'pvewhmcs',
 				__FUNCTION__,
-				'CLUSTER INFO: ' . $cluster_encoded,
-				'GUEST CONFIG (Service #' . $params['serviceid'] . ' / PVE ID #' . $guest->vmid . ' / Client #' . $params['clientsdetails']['userid'] . '): ' . $vmspecs_encoded
+				array(
+					'serviceid' => (int) $params['serviceid'],
+					'vmid' => (int) $guest->vmid,
+					'vtype' => (string) $guest->vtype,
+					'node' => (string) $guest_node,
+					'cluster_resource_count' => is_array($cluster_resources) ? count($cluster_resources) : 0,
+				),
+				'Client-area guest data loaded successfully'
 			);
 		}
 
@@ -1237,7 +1066,8 @@ function pvewhmcs_ClientArea($params) {
 	return array(
 		'templatefile' => 'clientarea',
 		'vars' => array(
-			'params' => $params,
+			// Do not expose the full WHMCS provisioning params array to Smarty;
+			// it can contain server credentials and other secrets.
 			'vm_config' => $vm_config,
 			'vm_status' => $vm_status,
 			'vm_statistics' => $vm_statistics,
@@ -1254,102 +1084,74 @@ function pvewhmcs_vmStat($params) {
 // VNC: Console access to VM/CT via noVNC
 function pvewhmcs_noVNC($params) {
 	global $CONFIG;
-	// Check if VNC Secret is configured in Module Config, fail early if not. (#27)
-	if (strlen(Capsule::table('mod_pvewhmcs')->where('id', '1')->value('vnc_secret'))<15) {
-		throw new Exception("PVEWHMCS Error: VNC Secret in Module Config either not set or not long enough. Recommend 20+ characters for security.");
-	}
-	
-	// Get server credentials and find guest node (VNC user lacks VM.Audit permission for /cluster/resources)
-	$serverip = $params["serverip"];
-	$serverport = $params["serverport"];
-	$proxmox_server = new PVE2_API($serverip, $params["serverusername"], "pam", $params["serverpassword"], $serverport);
-	if (!$proxmox_server->login()) {
-		return 'Failed to prepare noVNC. Unable to connect to server.';
-	}
-	
-	// Early prep work - find guest and node using server credentials
-	$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
-	if ($guest === null) {
-		return "Error performing action. Unable to find guest linked to Service ID ({$params['serviceid']})";
-	}
-	$guest_node = pvewhmcs_find_guest_node($proxmox_server, $guest, $params['serviceid']);
-	if (empty($guest_node)) {
-		return 'Failed to prepare noVNC. Unable to determine node.';
-	}
-	
-	// Now use VNC credentials for the actual VNC proxy request (restricted permissions)
-	$vncusername = 'vnc';
-	$vncpassword = Capsule::table('mod_pvewhmcs')->where('id', '1')->value('vnc_secret');
-	$proxmox = new PVE2_API($serverip, $vncusername, "pve", $vncpassword, $serverport);
-	if ($proxmox->login()) {
-		$vm_vncproxy = $proxmox->post('/nodes/' . $guest_node . '/' . $guest->vtype . '/' . $guest->vmid . '/vncproxy', array('websocket' => '1'));
 
-		// Get both tickets prepared
-		$pveticket = $proxmox->getTicket();
-		$vncticket = $vm_vncproxy['ticket'];
-		// $path should only contain the actual path without any query parameters
-		$path = 'api2/json/nodes/' . $guest_node . '/' . $guest->vtype . '/' . $guest->vmid . '/vncwebsocket?port=' . $vm_vncproxy['port'] . '&vncticket=' . urlencode($vncticket);
-		// Get WHMCS base URL (including subdirectory)
-		$whmcs_base = rtrim($CONFIG['SystemURL'], '/');
-		// Construct the noVNC Router URL with the path already prepared now
-		$url = $whmcs_base . '/modules/servers/pvewhmcs/novnc_router.php?host=' . $serverip . '&port=' . $serverport . '&pveticket=' . urlencode($pveticket) . '&path=' . urlencode($path) . '&vncticket=' . urlencode($vncticket);
-		// Build and deliver the noVNC Router hyperlink for access
-		$vncreply = '<center style="background-color: green;"><strong style="color: white;">Console (noVNC) successfully prepared!<br><a href="' . $url . '" target="_blanK" style="color: Khaki;"><u>Click here to launch noVNC.</u></a></strong></center>';
-		return $vncreply;
-	} else {
-		$vncreply = 'Failed to prepare noVNC. Please contact Technical Support.';
-		return $vncreply;
+	if (session_status() !== PHP_SESSION_ACTIVE) {
+		return 'Unable to initialize a secure console session.';
 	}
+
+	$serviceId = isset($params['serviceid']) ? (int) $params['serviceid'] : 0;
+	$userId = isset($params['userid'])
+		? (int) $params['userid']
+		: (isset($params['clientsdetails']['userid']) ? (int) $params['clientsdetails']['userid'] : 0);
+
+	if ($serviceId <= 0 || $userId <= 0) {
+		return 'Unable to validate the console request.';
+	}
+
+	$service = Capsule::table('tblhosting')
+		->where('id', '=', $serviceId)
+		->where('userid', '=', $userId)
+		->first();
+
+	if (!$service || (string) $service->domainstatus !== 'Active') {
+		return 'Console access is available only for an active service owned by this client.';
+	}
+
+	$guest = Capsule::table('mod_pvewhmcs_vms')
+		->where('id', '=', $serviceId)
+		->where('user_id', '=', $userId)
+		->first();
+
+	if (!$guest) {
+		return 'Unable to find the guest mapped to this service.';
+	}
+
+	if (!pvewhmcs_has_vnc_secret()) {
+		return 'Console access is not configured. Please contact Technical Support.';
+	}
+
+	if (!isset($_SESSION['pvewhmcs_console'])) {
+		$_SESSION['pvewhmcs_console'] = array();
+	}
+
+	// Keep only live sessions to avoid unbounded session growth.
+	$now = time();
+	foreach ($_SESSION['pvewhmcs_console'] as $key => $entry) {
+		if (!is_array($entry) || empty($entry['expires']) || (int) $entry['expires'] < $now) {
+			unset($_SESSION['pvewhmcs_console'][$key]);
+		}
+	}
+
+	$nonce = bin2hex(random_bytes(32));
+	$_SESSION['pvewhmcs_console'][$nonce] = array(
+		'serviceid' => $serviceId,
+		'userid' => $userId,
+		'expires' => $now + 60,
+	);
+
+	$whmcsBase = rtrim((string) $CONFIG['SystemURL'], '/');
+	$url = $whmcsBase . '/modules/servers/pvewhmcs/novnc_router.php?session=' . rawurlencode($nonce);
+
+	return '<div class="alert alert-success" style="text-align:center;">'
+		. '<strong>Secure console session prepared.</strong><br>'
+		. '<a href="' . htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" target="_blank" rel="noopener noreferrer">'
+		. 'Open noVNC Console'
+		. '</a></div>';
 }
 
 // VNC: Console access to VM/CT via SPICE
 function pvewhmcs_SPICE($params) {
-	global $CONFIG;
-	// Check if VNC Secret is configured in Module Config, fail early if not. (#27)
-	if (strlen(Capsule::table('mod_pvewhmcs')->where('id', '1')->value('vnc_secret'))<15) {
-		throw new Exception("PVEWHMCS Error: VNC Secret in Module Config either not set or not long enough. Recommend 20+ characters for security.");
-	}
-	
-	// Get server credentials and find guest node (VNC user lacks VM.Audit permission for /cluster/resources)
-	$serverip = $params["serverip"];
-	$proxmox_server = new PVE2_API($serverip, $params["serverusername"], "pam", $params["serverpassword"], $params["serverport"]);
-	if (!$proxmox_server->login()) {
-		return 'Failed to prepare SPICE. Unable to connect to server.';
-	}
-	
-	// Early prep work - find guest and node using server credentials
-	$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
-	if ($guest === null) {
-		return "Error performing action. Unable to find guest linked to Service ID ({$params['serviceid']})";
-	}
-	$guest_node = pvewhmcs_find_guest_node($proxmox_server, $guest, $params['serviceid']);
-	if (empty($guest_node)) {
-		return 'Failed to prepare SPICE. Unable to determine node.';
-	}
-	
-	// Now use VNC credentials for the actual SPICE proxy request (restricted permissions)
-	$vncusername = 'vnc';
-	$vncpassword = Capsule::table('mod_pvewhmcs')->where('id', '1')->value('vnc_secret');
-	$proxmox = new PVE2_API($serverip, $vncusername, "pve", $vncpassword, $params["serverport"]);
-	if ($proxmox->login()) {
-		$vm_vncproxy = $proxmox->post('/nodes/' . $guest_node . '/' . $guest->vtype . '/' . $guest->vmid . '/vncproxy', array('websocket' => '1'));
-
-		// Get both tickets prepared
-		$pveticket = $proxmox->getTicket();
-		$vncticket = $vm_vncproxy['ticket'];
-		// $path should only contain the actual path without any query parameters
-		$path = 'api2/json/nodes/' . $guest_node . '/' . $guest->vtype . '/' . $guest->vmid . '/vncwebsocket?port=' . $vm_vncproxy['port'] . '&vncticket=' . urlencode($vncticket);
-		// Get WHMCS base URL (including subdirectory)
-		$whmcs_base = rtrim($CONFIG['SystemURL'], '/');
-		// Construct the SPICE Router URL with the path already prepared now
-		$url = $whmcs_base . '/modules/servers/pvewhmcs/spice_router.php?host=' . $serverip . '&port=' . $serverport . '&pveticket=' . urlencode($pveticket) . '&path=' . urlencode($path) . '&vncticket=' . urlencode($vncticket);
-		// Build and deliver the SPICE Router hyperlink for access
-		$vncreply = '<center style="background-color: green;"><strong>Console (SPICE) successfully prepared.<br><a href="' . $url . '" target="_blanK" style="color: Khaki;"><u>Click here</u></a> to launch SPICE.</strong></center>';
-		return $vncreply;
-	} else {
-		$vncreply = 'Failed to prepare SPICE. Please contact Technical Support.';
-		return $vncreply;
-	}
+	return 'SPICE console access is disabled for security. Use the secure noVNC console instead.';
 }
 
 // PVE API FUNCTION, CLIENT/ADMIN: Start the VM/CT
@@ -1357,7 +1159,7 @@ function pvewhmcs_vmStart($params) {
 	// Gather access credentials for PVE, as these are no longer passed for Client Area
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
-	$serverip = $pveserver->ipaddress;
+	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
 
 	$api_data = array(
@@ -1404,7 +1206,7 @@ function pvewhmcs_vmReboot($params) {
 	// Gather access credentials for PVE, as these are no longer passed for Client Area
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
-	$serverip = $pveserver->ipaddress;
+	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
 
 	$api_data = array(
@@ -1462,7 +1264,7 @@ function pvewhmcs_vmShutdown($params) {
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
 	
-	$serverip = $pveserver->ipaddress;
+	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
 
 	$api_data = array(
@@ -1511,7 +1313,7 @@ function pvewhmcs_vmStop($params) {
 	// Gather access credentials for PVE, as these are no longer passed for Client Area
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
-	$serverip = $pveserver->ipaddress;
+	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
 
 	$api_data = array(

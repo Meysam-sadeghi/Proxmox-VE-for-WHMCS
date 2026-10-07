@@ -46,18 +46,9 @@ No evidence of an intentionally inserted backdoor, web shell, hidden command exe
 
 At the reviewed code baseline, the fork was byte-for-byte at the same Git commit/tree as upstream `The-Network-Crew/Proxmox-VE-for-WHMCS`. The bundled noVNC directory was independently compared with official noVNC v1.7.0: **208/208 vendored files were hash-identical; 0 were modified**.
 
-The primary risks come from upstream design/implementation choices, especially:
+The original audit identified material upstream design/implementation risks. The tracked source-level remediations for SEC-001 through SEC-016 have now been implemented on the security-hardening workstream: verified TLS is the default, root-backed PVE credentials are prohibited in favor of scoped API tokens, sensitive logging is removed, noVNC authorization is server-side/nonce-bound, addon mutations are POST+CSRF protected, dynamic output is escaped, the VNC secret is WHMCS-encrypted, CIDR imports are bounded, the applicable noVNC ZRLE issue is locally patched, legacy crypto is removed, and external version checks are bounded.
 
-- Proxmox TLS verification being disabled.
-- Highly privileged Proxmox credentials.
-- sensitive WHMCS module logging.
-- bearer-like PVE/VNC tickets transported in URLs.
-- the standalone noVNC router/cookie design.
-- state-changing admin actions over GET / missing explicit CSRF protection.
-- inconsistent contextual output escaping.
-- plaintext VNC secret storage.
-- unbounded IPv4 CIDR expansion.
-- applicable noVNC availability/destination-control issues.
+Items remain **FIXED - NEEDS VERIFICATION** rather than VERIFIED until the relevant acceptance tests run against a real WHMCS + Proxmox VE 9 staging environment.
 
 Static source review cannot prove that a deployed WHMCS or Proxmox host has never been compromised. Runtime incident-response checks are separate from this repository audit.
 
@@ -88,7 +79,7 @@ A client Reinstall/Rebuild action was added after the original audit at the user
 ## SEC-001 — Proxmox TLS certificate verification disabled
 
 **Severity:** CRITICAL  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** CWE-295 Improper Certificate Validation  
 **Primary file:** `modules/addons/pvewhmcs/proxmox.php`  
 **Relevant code:** constructor around lines 43-66; login around 94-101; generic action around 243-249.
@@ -120,17 +111,22 @@ A man-in-the-middle on the WHMCS↔PVE path can potentially impersonate the PVE 
 - Login and subsequent GET/POST/PUT/DELETE calls use identical verification policy.
 - No production default disables verification.
 
+### Remediation applied
+
+- PVE TLS verification now defaults to enabled.
+- Login and subsequent API calls use peer verification and hostname verification mode 2.
+- WHMCS server hostname is preferred over raw IP for certificate validation in provisioning, addon and reinstall paths.
+- Existing transport timeouts remain enabled.
+
 ### Fix commit / verification
 
-- Partial hardening commit: `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`
-- Verification: request/login paths now use the same flag, but secure TLS is **not the default yet**; finding remains OPEN.
-
----
+- Commits: `a44b3a8b0d74736bd35130bf2d1b10de79c7ea0e`, `fea0f79cb0f2bc45895025f836190f2fe525c8f3`, `cf820f2f9fd039340fc68fa1743241474f77106d`, `653a43a8883cf49526a368774e82c70df57fd037`
+- Verification: static code review complete. Test valid, wrong-hostname and untrusted certificates against the deployment before marking VERIFIED.
 
 ## SEC-002 — Normal API design uses root-equivalent Proxmox credentials
 
 **Severity:** CRITICAL (architecture / blast-radius risk)  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** CWE-250 Execution with Unnecessary Privileges  
 **Primary files:** `README.md`, `modules/servers/pvewhmcs/pvewhmcs.php`
 
@@ -156,17 +152,22 @@ Compromise of WHMCS, the database encryption boundary, logging, or the API chann
 - The API identity cannot modify unrelated datacenter-level security/configuration.
 - Compromise of the module credential has a demonstrably reduced blast radius.
 
+### Remediation applied
+
+- The API client supports Proxmox API tokens via WHMCS Server Username `user@realm!tokenid` and Password = token secret.
+- API-token requests use the PVE `Authorization: PVEAPIToken=...` mechanism and do not create login tickets or CSRF tokens.
+- `root@pam`, `root` in the PAM realm, and tokens backed by `root@pam` are explicitly rejected.
+- README now requires a dedicated privilege-separated token and documents scoped ACL guidance.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commits: `aa81f3574b3a426a8d281a298ad070396eaff741`, `5007848389f2d537cd9fd62726684f9ee35640c4`, `101913eeea5be4bd962381f1dc7540e64605f535`
+- Verification: Proxmox documents that token permissions are bounded by their backing user and may be privilege-separated. Run the full create/clone/reinstall/power/delete lifecycle with the production ACL set before marking VERIFIED.
 
 ## SEC-003 — Sensitive credentials can be written to WHMCS Module Log
 
 **Severity:** HIGH  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** CWE-532 Insertion of Sensitive Information into Log File  
 **Primary file:** `modules/servers/pvewhmcs/pvewhmcs.php`  
 **Relevant code:** around lines 172-185, 550-558, 649-657 and other `logModuleCall()` sites.
@@ -199,17 +200,22 @@ Customer/root passwords and/or PVE credentials may persist in the WHMCS Module L
 - Triggered exceptions do not write secrets.
 - Automated test/assertion searches generated log payloads for known test secrets and finds none.
 
+### Remediation applied
+
+- Raw provisioning `$params`, all custom fields, server credentials and customer/root passwords are no longer passed to `logModuleCall()`.
+- Debug logging now uses a minimal non-secret context (service/user/product/server IDs and safe VM metadata).
+- Full PVE guest configuration and cluster resource dumps were removed from client-area debug logs.
+- The full WHMCS provisioning params array is no longer exposed to the Smarty client template.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commits: `386e671ee4dcd92f58f937abda64c837dc1ac7f6`, `05d9b95fddef7015bc29a3719dda686fe3a1387c`
+- Verification: static sink review complete. Enable Module Log in staging, exercise success/error paths with known test secrets, and confirm those values never appear. Purge historical Module Log entries and rotate credentials that may have been logged before this fix.
 
 ## SEC-004 — PVE and VNC bearer tickets transported in query strings
 
 **Severity:** HIGH  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** CWE-598 Use of GET Request Method With Sensitive Query Strings  
 **Primary files:** `modules/servers/pvewhmcs/pvewhmcs.php`, `modules/servers/pvewhmcs/novnc_router.php`  
 **Relevant code:** `pvewhmcs_noVNC()` around 1251-1295; router around 39-84.
@@ -248,17 +254,22 @@ Redesign console bootstrap so raw PVE/VNC tickets are not exposed in browser-vis
 - Reusing the opaque nonce fails after first use/expiry.
 - Nonce for one service/client cannot open another service.
 
+### Remediation applied
+
+- The customer-facing console URL now carries only a random one-time session nonce.
+- PVE authentication ticket, VNC ticket, destination host, port and path are generated/resolved server-side after authorization.
+- Console endpoints send `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
+- A second short-lived one-time nonce transfers authorized runtime state to the minimal noVNC page.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commits: `6febca34b884971c1becfaf5c275d30deda727bb`, `10523475516b4417755def832fbbd82573577ebb`, `8fb026d4fb88cca520bb347d79ae737c8e6a3e22`
+- Verification: customer/browser page URLs and WHMCS access-log query strings contain no PVE/VNC ticket. The PVE VNC proxy protocol still necessarily uses its short-lived VNC ticket inside the direct PVE WebSocket connection.
 
 ## SEC-005 — noVNC router is standalone and not bound to WHMCS session/service authorization
 
 **Severity:** HIGH  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** CWE-862 Missing Authorization / replay risk  
 **Primary file:** `modules/servers/pvewhmcs/novnc_router.php`
 
@@ -286,17 +297,22 @@ Implement the server-side one-time console session described in SEC-004. Verify:
 Directly calling the router without a valid authenticated session + nonce fails.
 Cross-client and cross-service replay tests fail safely.
 
+### Remediation applied
+
+- `novnc_router.php` now boots WHMCS and requires an authenticated client session.
+- It consumes a one-time nonce before privileged work.
+- Service ownership, Active status, module guest mapping and user ID are revalidated from the WHMCS database.
+- The nonce is client/service bound and expires after about one minute.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commit: `10523475516b4417755def832fbbd82573577ebb`
+- Verification: static authorization flow reviewed. Perform cross-client, expired-nonce and replay tests in staging before marking VERIFIED.
 
 ## SEC-006 — Broad console authentication cookie with `HttpOnly=false`
 
 **Severity:** HIGH / MEDIUM  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** CWE-1004 Sensitive Cookie Without HttpOnly Flag / overly broad cookie scope  
 **Primary file:** `modules/servers/pvewhmcs/novnc_router.php`  
 **Relevant code:** around lines 27-35 and 56-70.
@@ -322,17 +338,26 @@ Prefer a console architecture that does not require propagating a PVE authentica
 
 No long-lived or broadly scoped PVE auth cookie is readable by unrelated application JavaScript/sibling services.
 
+### Remediation applied
+
+- `PVEAuthCookie` is now short-lived (about 120 seconds), `Secure`, `HttpOnly`, `SameSite=Strict`, and scoped to `/api2/json/`.
+- JavaScript can no longer read the PVE authentication ticket.
+- Cookie-domain calculation is derived from both trusted WHMCS/PVE hostnames instead of blindly using the final two labels.
+- Direct console mode requires trusted HTTPS DNS hostnames under a common registrable domain.
+
+### Residual architectural note
+
+Direct browser-to-PVE WebSocket access still requires the PVE cookie to be available to the PVE sibling hostname. Completely eliminating that shared-domain cookie would require a dedicated authenticated WebSocket reverse proxy rather than the current direct-PVE noVNC architecture.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commits: `d0a6f5aa062ea61d33cf17678412ad613e1113c2`, `10523475516b4417755def832fbbd82573577ebb`
+- Verification: inspect browser cookie attributes and successful WSS authentication in the production domain topology before marking VERIFIED.
 
 ## SEC-007 — State-changing admin operations use GET and forms lack explicit module-level CSRF validation
 
 **Severity:** MEDIUM  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** CWE-352 Cross-Site Request Forgery  
 **Primary file:** `modules/addons/pvewhmcs/pvewhmcs.php`  
 **Relevant routing:** around lines 606-725; delete functions around 2102+, 2245+, 2358+.
@@ -366,17 +391,22 @@ An authenticated WHMCS administrator may be induced to trigger a state-changing 
 - Missing/invalid CSRF token causes rejection.
 - Valid admin POST succeeds.
 
+### Remediation applied
+
+- Plan, IP-pool and IP deletion operations are no longer reachable through GET.
+- All addon POST mutations require WHMCS token validation.
+- Every module POST form emits a WHMCS CSRF token.
+- Destructive operations use an allowlisted POST dispatcher and positive integer target validation.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commit: `c2de9ac651968c410c15bd369dd3236fbc8500cc`
+- Verification: static route/form review complete. Test a valid admin POST, missing token, wrong token and old GET delete URLs in WHMCS before marking VERIFIED.
 
 ## SEC-008 — Inconsistent contextual output escaping / stored XSS surface
 
 **Severity:** MEDIUM  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** CWE-79 Improper Neutralization of Input During Web Page Generation  
 **Primary files:** `modules/addons/pvewhmcs/pvewhmcs.php`, `modules/servers/pvewhmcs/clientarea.tpl`
 
@@ -402,17 +432,23 @@ A malicious or compromised administrator/PVE configuration, or an unexpected val
 
 Test payloads containing HTML/quotes/script-like text render as inert text in both admin and client pages.
 
+### Remediation applied
+
+- Added centralized `pvewhmcs_e()` HTML escaping in the admin addon.
+- Plan/pool stored values and editable HTML attributes are contextually escaped.
+- Admin exception text is escaped before rendering.
+- Client Smarty output now explicitly escapes guest/PVE-derived text, attributes, NIC values, SSH keys and statistics attributes.
+- Reinstall template already used explicit escaping.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commits: `e16f9fd0047508ba04756fa22df06763c0732025`, `12208364cdb401701419354c8d5dc91853e8ed5e`, `2a61169d0d532759522bfc5edfbdf257efda2d9e`
+- Verification: inject HTML/quote/script test strings into staging plan/PVE fields and verify inert rendering before marking VERIFIED.
 
 ## SEC-009 — VNC secret stored/displayed as plaintext
 
 **Severity:** MEDIUM  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** CWE-312 Cleartext Storage of Sensitive Information  
 **Primary files:** `modules/addons/pvewhmcs/db.sql`, `modules/addons/pvewhmcs/pvewhmcs.php`
 
@@ -435,17 +471,22 @@ Database/admin-page disclosure directly reveals the PVE `vnc@pve` credential.
 
 Database value is not reusable plaintext and admin HTML does not contain the existing secret.
 
+### Remediation applied
+
+- Added WHMCS-backed secret encryption helpers using the supported `EncryptPassword` / `DecryptPassword` Local API.
+- Stored VNC secrets are prefixed/encrypted and legacy plaintext is migrated automatically on addon access or secret use.
+- Admin UI is now a blank password field with a configured-state placeholder; the existing secret is never rendered into HTML.
+- Blank form submission preserves the current secret; replacement values must meet the minimum length.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commits: `d0a6f5aa062ea61d33cf17678412ad613e1113c2`, `013224e6cf6d5a3e632132299d92246baeb189fd`, `0b0021533830d8fd17e6eaf601639cfead144136`
+- Verification: verify the DB contains an `enc:` value after upgrade and console access still works. Rotate the old `vnc@pve` password once after deploying this migration.
 
 ## SEC-010 — Unbounded IPv4 CIDR expansion can exhaust resources
 
 **Severity:** MEDIUM  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** CWE-400 Uncontrolled Resource Consumption  
 **Primary files:** `modules/addons/pvewhmcs/pvewhmcs.php`, `modules/addons/pvewhmcs/Ipv4/SubnetIterator.php`
 
@@ -470,17 +511,22 @@ A large range can cause excessive PHP execution time, memory/DB work and enormou
 Oversized ranges are rejected before enumeration.
 Allowed ranges complete within bounded time/query count.
 
+### Remediation applied
+
+- Strictly validates pool ID and IPv4/CIDR input.
+- Calculates CIDR size before iteration and rejects more than 4096 addresses (larger than /20).
+- Skips pool gateways and existing addresses.
+- Performs bounded batch inserts inside a transaction.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commit: `24bb11505c613a0397cba0fd8762e8fabc311970`
+- Verification: test /32, /24, /20 and rejected /19-/0 inputs and observe bounded DB/runtime behavior before marking VERIFIED.
 
 ## SEC-011 — Bundled noVNC v1.7.0 ZRLE plain-RLE CPU DoS condition
 
 **Severity:** MEDIUM  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** resource exhaustion / client-side availability  
 **Primary file:** `modules/servers/pvewhmcs/novnc/core/decoders/zrle.js`  
 **Relevant code:** `_decodeRLETile()` around lines 127-141.  
@@ -502,17 +548,25 @@ Prefer upgrading to an upstream release containing the fix once available. If an
 
 An RLE run larger than the remaining tile is rejected before the large inner loop.
 
+### Remediation applied
+
+- Added the missing `i + length > tileSize` guard to bundled noVNC v1.7.0 `_decodeRLETile()`.
+- Oversized plain-mode RLE runs now throw before the inner pixel loop.
+- A CI regression check requires this bound to remain present.
+
+### Vendor note
+
+As of the 2026-10-07 check, noVNC 1.7.0 remains the latest release and upstream issue #2072 remains open. This repository therefore intentionally carries a one-file local security patch and is no longer byte-identical to pristine noVNC v1.7.0.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commits: `60e87af613681bcc6e5e1477e157e6aa62174b47`, `ef724f4af3a4c398c300c156464f45f062c1b073`
+- Verification: source bound is present; run the noVNC decoder/browser regression suite where available before marking VERIFIED.
 
 ## SEC-012 — noVNC destination can be influenced by URL parameters; module lacks destination allowlisting
 
 **Severity:** MEDIUM  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** untrusted WebSocket destination / phishing/connection-confusion surface  
 **Primary files:** `modules/servers/pvewhmcs/novnc_router.php`, bundled noVNC  
 **Upstream tracking:** `novnc/noVNC#2051`
@@ -537,12 +591,17 @@ Without binding destination values to a server-side service record, the trusted 
 
 Client input cannot select an arbitrary WebSocket host/port/path.
 
+### Remediation applied
+
+- Browser input can no longer supply the PVE host, API port, guest path, VMID or node.
+- Destination is resolved server-side from the authenticated WHMCS service/server mapping and trusted PVE cluster resources.
+- The minimal noVNC page sets CSP `connect-src` to the single resolved PVE WSS origin.
+- Runtime state is bound to an authenticated one-time console session.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commits: `10523475516b4417755def832fbbd82573577ebb`, `8fb026d4fb88cca520bb347d79ae737c8e6a3e22`
+- Verification: attempt crafted host/port/path query parameters and confirm they cannot affect the WebSocket destination.
 
 ## SEC-013 — PVE ticket age check was logically incorrect
 
@@ -572,17 +631,19 @@ and clears both the ticket and its timestamp.
 
 Unit/integration tests should verify valid-young and expired-old ticket behavior.
 
+### Remediation applied
+
+The local ticket check now expires PVE login sessions when `time() >= login_ticket_timestamp + 7200` and clears the cached ticket/timestamp.
+
 ### Fix commit / verification
 
 - Commit: `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`
-- Verification: code path reviewed; live/runtime verification still required before changing status to VERIFIED.
-
----
+- Verification: code path reviewed; test young and artificially expired tickets in integration before marking VERIFIED.
 
 ## SEC-014 — Legacy custom SHA1/MD5/XOR encryption helper remains in source
 
 **Severity:** LOW  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** obsolete cryptography / unsafe reuse risk  
 **Primary file:** `modules/servers/pvewhmcs/pvewhmcs.php`  
 **Relevant code:** approximately 830-1020.
@@ -601,17 +662,20 @@ Confirm no supported path calls `pvewhmcs_get_whmcs_server_password()`; then rem
 
 No call sites remain; provisioning/client operations still retrieve credentials through supported WHMCS mechanisms.
 
+### Remediation applied
+
+- Removed the entire legacy SHA1/MD5/XOR encryption class and `pvewhmcs_get_whmcs_server_password()`.
+- Active code uses the supported WHMCS `DecryptPassword` Local API only.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commit: `9a2617ec809b38f81594bc933eadc50a3e310fd9`
+- Verification: static call-site search found no supported dependency on the removed helper; exercise client/power/provisioning actions in staging before marking VERIFIED.
 
 ## SEC-015 — Parent-domain derivation for console cookie is fragile
 
 **Severity:** LOW  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** security configuration correctness  
 **Primary file:** `modules/servers/pvewhmcs/novnc_router.php`  
 **Relevant code:** around lines 56-57.
@@ -628,17 +692,21 @@ Prefer eliminating this cross-subdomain cookie design through SEC-004/SEC-006. I
 
 Console auth does not depend on incorrect public-suffix assumptions.
 
+### Remediation applied
+
+- Removed the old "last two hostname labels" derivation.
+- Secure console derives the common suffix from both actual configured WHMCS and PVE DNS hosts and rejects IP literals and known public-suffix-only results.
+- Console no longer accepts a cookie domain/destination from browser input.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commits: `d0a6f5aa062ea61d33cf17678412ad613e1113c2`, `10523475516b4417755def832fbbd82573577ebb`
+- Verification: test the real production domain (including multi-label TLD if applicable) and inspect the resulting cookie domain.
 
 ## SEC-016 — Remote version check lacks defensive cURL controls
 
 **Severity:** LOW  
-**Status:** OPEN  
+**Status:** FIXED - NEEDS VERIFICATION  
 **Category:** availability / external dependency hardening  
 **Primary file:** `modules/addons/pvewhmcs/pvewhmcs.php`  
 **Relevant function:** `get_pvewhmcs_latest_version()` around lines 158-171.
@@ -659,12 +727,17 @@ Add short connect/overall timeouts, validate expected version-string format, and
 
 Unavailable GitHub does not materially delay addon page rendering.
 
+### Remediation applied
+
+- Remote version check now has a 3-second connect timeout and 5-second total timeout.
+- Redirect following is disabled, HTTPS protocol is required and HTTP errors fail.
+- Response must match the expected version-string format.
+- Network/validation failures safely fall back to the installed version.
+
 ### Fix commit / verification
 
-- Commit: —
-- Verification: —
-
----
+- Commit: `858e3851ffb0834a0e211e0dab67b5ba90a47ab2`
+- Verification: simulate unreachable GitHub/invalid response and confirm admin rendering remains bounded before marking VERIFIED.
 
 # Additional hardening observations
 
@@ -771,6 +844,8 @@ Residual/security dependencies:
 
 # Audit maintenance history
 
+- **2026-10-07:** Security hardening implemented for SEC-001 through SEC-016; source-level fixes are awaiting live WHMCS + PVE 9 acceptance verification.
+- **2026-10-07:** Added security-regression CI to prevent reintroduction of disabled TLS, root credentials, ticket-bearing console links, GET deletes and the noVNC ZRLE bound regression.
 - **2026-10-07:** Initial full static review documented.
 - Reviewed code baseline: `7ff41ccecde7e1d846860e3b24208129ee8fdd42`.
 - Fork/upstream tree equality verified at baseline.
