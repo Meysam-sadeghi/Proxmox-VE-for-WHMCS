@@ -10,7 +10,7 @@
 
 This file is the authoritative security-review handoff for future remediation work.
 
-**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat a full repository audit unless source code has materially changed since the reviewed baseline. The original full-audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; post-audit runtime changes for the Proxmox VE 9+ Reinstall feature and HTTP response parsing were specifically reviewed through `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`. If HEAD is newer, compare against that post-audit source baseline first. Documentation-only commits do not invalidate this audit.
+**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat a full repository audit unless source code has materially changed since the reviewed baseline. The original full-audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; post-audit runtime changes for the Proxmox VE 9+ Reinstall feature and HTTP response parsing were specifically reviewed through `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8`. If HEAD is newer, compare against that post-audit source baseline first. Documentation-only commits do not invalidate this audit.
 
 When fixing an item:
 
@@ -95,9 +95,9 @@ A client Reinstall/Rebuild action was added after the original audit at the user
 
 ### Evidence
 
-- `PVE2_API::__construct(..., $verify_ssl = false)` still defaults certificate verification off.
-- Post-audit hardening commit `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f` made login and subsequent API requests consistently honor the configured `verify_ssl` flag, using hostname verification mode `2` when enabled.
-- The finding remains OPEN because existing callers do not enable the flag and the constructor default remains insecure-by-default.
+- `PVE2_API::__construct(..., $verify_ssl = false)` defaults verification off.
+- Login uses that false value for `CURLOPT_SSL_VERIFYPEER` and `CURLOPT_SSL_VERIFYHOST`.
+- More importantly, the generic API request method later sets both verification options to `false` unconditionally, ignoring the constructor setting.
 
 ### Security impact
 
@@ -122,8 +122,8 @@ A man-in-the-middle on the WHMCS↔PVE path can potentially impersonate the PVE 
 
 ### Fix commit / verification
 
-- Partial hardening commit: `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`
-- Verification: request/login paths now use the same flag, but secure TLS is **not the default yet**; finding remains OPEN.
+- Commit: —
+- Verification: —
 
 ---
 
@@ -544,38 +544,34 @@ Client input cannot select an arbitrary WebSocket host/port/path.
 
 ---
 
-## SEC-013 — PVE ticket age check was logically incorrect
+## SEC-013 — PVE ticket age check is logically incorrect
 
 **Severity:** LOW  
-**Status:** FIXED - NEEDS VERIFICATION  
+**Status:** OPEN  
 **Category:** authentication state correctness  
 **Primary file:** `modules/addons/pvewhmcs/proxmox.php`  
 **Relevant function:** `check_login_ticket()`.
 
-### Original evidence
+### Evidence
 
-The old code compared approximately:
+The code compares approximately:
 
 `login_ticket_timestamp >= (time() + 7200)`
 
-A timestamp captured in the past would not become greater than the current time plus two hours.
+A timestamp captured in the past will not become greater than the current time plus two hours, so this does not correctly expire a two-hour-old local ticket.
 
-### Remediation applied
+### Required remediation
 
-The session check now invalidates the local PVE ticket when:
-
-`time() >= login_ticket_timestamp + 7200`
-
-and clears both the ticket and its timestamp.
+Compare current time against creation time, e.g. elapsed age, with a conservative margin below PVE ticket lifetime.
 
 ### Acceptance criteria
 
-Unit/integration tests should verify valid-young and expired-old ticket behavior.
+Unit tests verify valid-young and expired-old ticket behavior.
 
 ### Fix commit / verification
 
-- Commit: `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`
-- Verification: code path reviewed; live/runtime verification still required before changing status to VERIFIED.
+- Commit: —
+- Verification: —
 
 ---
 
@@ -738,7 +734,7 @@ Implemented buttons:
 
 ## Reinstall / rebuild
 
-**Implemented after the original audit baseline; source reviewed through `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`.**
+**Implemented after the original audit baseline; source reviewed through `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8`.**
 
 Primary file: `modules/servers/pvewhmcs/reinstall.php`.
 
@@ -749,7 +745,8 @@ Security-relevant design:
 - Requires Proxmox VE major version 9+ at runtime.
 - Accepts only allowlisted QEMU/LXC template values from the product/template configuration; arbitrary client-supplied VMIDs/volume paths are rejected.
 - QEMU sources must be actual PVE templates and must contain Cloud-Init.
-- Uses a cryptographically random one-time per-service session nonce plus explicit destructive confirmation and the literal confirmation phrase `REINSTALL`.
+- Uses the native WHMCS client-area CSRF token plus a cryptographically random one-time per-service session nonce, explicit destructive confirmation and the literal confirmation phrase `REINSTALL`.
+- Uses a dedicated `reinstall.tpl` custom-action page returned through WHMCS `templatefile + vars`, avoiding theme-dependent raw HTML action output.
 - Uses a per-service MySQL advisory lock against simultaneous reinstall requests.
 - Uses a replacement-first cutover: build new VM/CT under a new VMID before stopping the current guest.
 - Starts the replacement before the WHMCS mapping is switched.
@@ -764,7 +761,7 @@ Residual/security dependencies:
 - The reinstall path still relies on the shared `PVE2_API` transport, so **SEC-001 (TLS verification disabled)** remains applicable.
 - It still relies on the configured normal PVE service credential, so **SEC-002 (over-privileged/root identity)** remains applicable until that architecture is hardened.
 - The rest of the module's existing logging and client/admin output issues remain open.
-- GitHub Actions PHP syntax validation passed for the complete PHP source tree at source commit `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f` (run `37682601499`). No live WHMCS + Proxmox VE 9 integration environment was available during this code change; production enablement still requires runtime verification on a non-production service first.
+- No live WHMCS + Proxmox VE 9 integration environment was available during this code change; production enablement requires runtime verification on a non-production service first.
 
 ---
 
@@ -777,6 +774,6 @@ Residual/security dependencies:
 - `SYSTEM_MAP.md` created as architecture/context handoff.
 - **2026-10-07:** Added client-side Proxmox VE 9+ Reinstall OS workflow in `modules/servers/pvewhmcs/reinstall.php` and exposed it through the WHMCS client custom-button mechanism.
 - Reinstall implementation commits reviewed: `52e41c649df43ac4adbe6bae692f81a41ead0d45`, `fa8736ca8064c14221531170228e36b2d0a49d75`, `054d8da0a2c7d0beee1aee1c28f1f01fa214075f`.
-- PVE API transport response handling updated for protocol-independent HTTP status/header parsing through `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`; the same commit fixed local ticket-expiry logic and made all API calls honor the configured TLS verification flag. TLS verification still defaults off, so SEC-001 remains OPEN.
+- PVE API transport response handling updated for protocol-independent HTTP status/header parsing in `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8`.
 - Existing security findings were **not** marked fixed by the Reinstall work; SEC-001 through SEC-016 retain their previous statuses unless separately remediated and verified.
-- Added `.github/workflows/php-lint.yml` so future PHP-changing pushes/PRs have a repository-level syntax check. GitHub Actions run `37682601499` completed successfully against source commit `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`; its `Lint PHP sources` step passed. This validates PHP syntax only, not live WHMCS/PVE behavior.
+- Added `.github/workflows/php-lint.yml` so future PHP-changing pushes/PRs have a repository-level syntax check. Connector-authored commits did not produce a workflow run during this session, so this is not recorded as a completed runtime/lint verification.
