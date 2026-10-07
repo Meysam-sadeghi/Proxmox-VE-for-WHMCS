@@ -230,7 +230,8 @@ jobs:
                 "token-secret",
                 "pve-cookie-secret",
                 "vnc-ticket-secret",
-                "processed-secret"
+                "processed-secret",
+                "replace-secret"
             ) as $secret) {
                 if (strpos($encoded, $secret) !== false) {
                     fwrite(STDERR, "secret reached logModuleCall: " . $secret . "\n");
