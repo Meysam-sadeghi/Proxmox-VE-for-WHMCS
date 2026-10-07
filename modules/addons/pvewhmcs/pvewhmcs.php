@@ -28,6 +28,50 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 // Define where the module operates in the Admin GUI
 define( 'pvewhmcs_BASEURL', 'addonmodules.php?module=pvewhmcs' );
 
+/**
+ * WHMCS admin CSRF helpers.
+ */
+function pvewhmcs_admin_csrf_input() {
+	if (!function_exists('generate_token')) {
+		throw new RuntimeException('WHMCS CSRF token generator is unavailable.');
+	}
+
+	$token = generate_token('plain');
+	return '<input type="hidden" name="token" value="'
+		. htmlspecialchars($token, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+		. '">';
+}
+
+function pvewhmcs_admin_delete_form($action, $id, array $extra = array()) {
+	$allowed = array('removeplan', 'removeippool', 'removeip');
+	if (!in_array($action, $allowed, true)) {
+		throw new InvalidArgumentException('Unsupported delete action.');
+	}
+
+	$html = '<form method="post" style="display:inline" onsubmit="return confirm(\'This action cannot be undone. Continue?\');">';
+	$html .= pvewhmcs_admin_csrf_input();
+	$html .= '<input type="hidden" name="pvewhmcs_delete_action" value="'
+		. htmlspecialchars($action, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">';
+	$html .= '<input type="hidden" name="id" value="' . (int) $id . '">';
+
+	foreach ($extra as $name => $value) {
+		if (!preg_match('/^[A-Za-z0-9_]+$/', (string) $name)) {
+			continue;
+		}
+		$html .= '<input type="hidden" name="'
+			. htmlspecialchars((string) $name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+			. '" value="'
+			. htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+			. '">';
+	}
+
+	$html .= '<button type="submit" class="btn btn-link" style="padding:0;border:0;background:none;">'
+		. '<img height="16" width="16" border="0" alt="Delete" src="images/delete.gif">'
+		. '</button></form>';
+
+	return $html;
+}
+
 // DEP: Require the PHP API Class and shared security helpers.
 require_once('proxmox.php');
 require_once('security.php');
@@ -219,6 +263,14 @@ function pvewhmcs_addon_fetch_rrd($proxmox, $path, $timeframe, $ds) {
 function pvewhmcs_output($vars) {
 	$modulelink = $vars['modulelink'];
 
+	// Every state-changing addon request must carry a valid WHMCS admin CSRF token.
+	if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+		if (!function_exists('check_token')) {
+			throw new RuntimeException('WHMCS CSRF validator is unavailable.');
+		}
+		check_token();
+	}
+
 	// Check for update and report if available
 	if (!empty(is_pvewhmcs_outdated())) {
 		$_SESSION['pvewhmcs']['infomsg']['title']='Proxmox VE for WHMCS: New version available!' ;
@@ -321,6 +373,33 @@ function pvewhmcs_output($vars) {
 	if (isset($_POST['plan_update_lxc']))
 	{
 		update_lxc_plan() ;
+	}
+
+	if (isset($_POST['pvewhmcs_delete_action'])) {
+		$deleteAction = (string) $_POST['pvewhmcs_delete_action'];
+		$id = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+
+		if ($id <= 0) {
+			throw new InvalidArgumentException('Invalid delete target.');
+		}
+
+		switch ($deleteAction) {
+			case 'removeplan':
+				remove_plan($id);
+				break;
+			case 'removeippool':
+				removeIpPool($id);
+				break;
+			case 'removeip':
+				$poolId = isset($_POST['pool_id']) ? (int) $_POST['pool_id'] : 0;
+				if ($poolId <= 0) {
+					throw new InvalidArgumentException('Invalid IP pool.');
+				}
+				removeip($id, $poolId);
+				break;
+			default:
+				throw new InvalidArgumentException('Unsupported delete action.');
+		}
 	}
 
 	// NODES / GUESTS tab in ADMIN GUI
@@ -619,10 +698,6 @@ function pvewhmcs_output($vars) {
 			lxc_plan_edit($_GET['id']) ;
 	}
 
-	if($_GET['action']=='removeplan') {
-		remove_plan($_GET['id']) ;
-	}
-
 
 	if ($_GET['action']=='add_lxc_plan') {
 		lxc_plan_add() ;
@@ -682,7 +757,7 @@ function pvewhmcs_output($vars) {
 			echo '<td>' . $vm->unpriv . '</td>';
 			echo '<td>
 			<a href="' . pvewhmcs_BASEURL . '&amp;tab=vmplans&amp;action=editplan&amp;id=' . $vm->id . '&amp;vmtype=' . $vm->vmtype . '"><img height="16" width="16" border="0" alt="Edit" src="images/edit.gif"></a>
-			<a href="' . pvewhmcs_BASEURL . '&amp;tab=vmplans&amp;action=removeplan&amp;id=' . $vm->id . '" onclick="return confirm(\'Plan will be deleted, continue?\')"><img height="16" width="16" border="0" alt="Edit" src="images/delete.gif"></a>
+			' . pvewhmcs_admin_delete_form("removeplan", $vm->id) . '
 			</td>';
 			echo '</tr>';
 		}
@@ -716,14 +791,8 @@ function pvewhmcs_output($vars) {
 	if (isset($_POST['newIPpool'])) {
 		save_ip_pool() ;
 	}
-	if ($_GET['action']=='removeippool') {
-		removeIpPool($_GET['id']) ;
-	}
 	if ($_GET['action']=='list_ips') {
 		list_ips();
-	}
-	if ($_GET['action']=='removeip') {
-		removeip($_GET['id'],$_GET['pool_id']);
 	}
 	echo'
 	</div>
@@ -792,6 +861,7 @@ function pvewhmcs_output($vars) {
 	<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:25px;">
 	<h3 style="margin:0 0 20px 0;color:#5c3d7a;font-weight:600;"><span style="font-size:24px;">&#9881;</span> Module Configuration</h3>
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table style="width:100%;border-collapse:collapse;">
 	<tr>
 		<td style="padding:15px 0;border-bottom:1px solid #eee;width:150px;vertical-align:top;">
@@ -1045,7 +1115,7 @@ function import_guest() {
 
 	// Always show the form for easy further imports
 	if (!empty($resultMsg)) echo $resultMsg;
-	echo '<form method="post">';
+	echo '<form method="post">' . pvewhmcs_admin_csrf_input();
 	echo '<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">';
 	echo '<tr><td class="fieldlabel">PVE VMID</td><td class="fieldarea"><input type="text" name="import_vmid" required></td></tr>';
 	echo '<tr><td class="fieldlabel">Hostname</td><td class="fieldarea"><input type="text" name="import_hostname" required></td></tr>';
@@ -1127,6 +1197,7 @@ function save_config() {
 function qemu_plan_add() {
 	echo '
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Plan Title</td>
@@ -1443,6 +1514,7 @@ function qemu_plan_edit($id) {
 	}
 	echo '
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Plan Title</td>
@@ -1755,6 +1827,7 @@ function qemu_plan_edit($id) {
 function lxc_plan_add() {
 	echo '
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Plan Title</td>
@@ -1897,6 +1970,7 @@ function lxc_plan_edit($id) {
 	}
 	echo '
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Plan Title</td>
@@ -2207,7 +2281,7 @@ function list_ip_pools() {
 		echo '<td>' . $pool->gateway . '</td>';
 		echo '<td>
 		<a href="' . pvewhmcs_BASEURL . '&amp;tab=ippools&amp;action=list_ips&amp;id=' . $pool->id . '"><img height="16" width="16" border="0" alt="Info" src="images/edit.gif"></a>
-		<a href="' . pvewhmcs_BASEURL . '&amp;tab=ippools&amp;action=removeippool&amp;id=' . $pool->id . '" onclick="return confirm(\'Pool and all IPv4 Addresses assigned to it will be deleted, continue?\')"><img height="16" width="16" border="0" alt="Remove" src="images/delete.gif"></a>
+		' . pvewhmcs_admin_delete_form("removeippool", $pool->id) . '
 		</td>';
 		echo '</tr>';
 	}
@@ -2218,6 +2292,7 @@ function list_ip_pools() {
 function add_ip_pool() {
 	echo '
 	<form method="post">
+	' . pvewhmcs_admin_csrf_input() . '
 	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">Pool Title</td>
@@ -2261,6 +2336,10 @@ function save_ip_pool() {
 
 // IP POOL FORM ACTION: Remove Pool
 function removeIpPool($id) {
+	$id = (int) $id;
+	if ($id <= 0) {
+		throw new InvalidArgumentException('Invalid IP pool ID.');
+	}
 	Capsule::table('mod_pvewhmcs_ip_addresses')->where('pool_id', '=', $id)->delete();
 	Capsule::table('mod_pvewhmcs_ip_pools')->where('id', '=', $id)->delete();
 
@@ -2362,9 +2441,11 @@ function list_ips() {
             echo 'In use: <a href="' . $serviceLink . '" target="_blank">Service #' . $service->id . '</a>';
         } else {
             // IP is free (not in tblhosting OR status is Terminated/Cancelled/Fraud/Pending)
-            echo '<a href="' . pvewhmcs_BASEURL . '&amp;tab=ippools&amp;action=removeip&amp;pool_id=' . $ip->pool_id . '&amp;id=' . $ip->id . '" onclick="return confirm(\'IPv4 Address will be deleted from the pool, continue?\')">
-                    <img height="16" width="16" border="0" alt="Edit" src="images/delete.gif">
-                  </a>';
+            echo pvewhmcs_admin_delete_form(
+                'removeip',
+                (int) $ip->id,
+                array('pool_id' => (int) $ip->pool_id)
+            );
         }
         
         echo '</td></tr>';
@@ -2374,6 +2455,11 @@ function list_ips() {
 
 // IP POOL FORM ACTION: Remove IP from Pool
 function removeip($id, $pool_id) {
+	$id = (int) $id;
+	$pool_id = (int) $pool_id;
+	if ($id <= 0 || $pool_id <= 0) {
+		throw new InvalidArgumentException('Invalid IP or pool ID.');
+	}
 	Capsule::table('mod_pvewhmcs_ip_addresses')->where('id', '=', $id)->delete();
 	header("Location: " . pvewhmcs_BASEURL . "&tab=ippools&action=list_ips&id=" . $pool_id);
 	$_SESSION['pvewhmcs']['infomsg']['title'] = 'IPv4 Address deleted.';
