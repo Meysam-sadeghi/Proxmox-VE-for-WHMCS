@@ -485,8 +485,11 @@ Database value is not reusable plaintext and admin HTML does not contain the exi
 ### Remediation applied
 
 - Added WHMCS-backed secret encryption helpers using the supported `EncryptPassword` / `DecryptPassword` Local API.
-- Stored VNC secrets are prefixed/encrypted and legacy plaintext is migrated automatically on addon access or secret use.
-- Admin UI is now a blank password field with a configured-state placeholder; the existing secret is never rendered into HTML.
+- Encrypted values are round-trip decrypted and compared before the ciphertext is accepted.
+- New installs store `vnc_secret` as `TEXT`; existing `VARCHAR(255)` installs are migrated before secret reads/writes so opaque WHMCS ciphertext cannot be truncated.
+- Legacy plaintext is migrated transactionally to encrypted storage, with an exact persistence read-back check; a mismatch rolls the transaction back.
+- Config saves update only singleton row ID 1 and verify the persisted encrypted value before commit.
+- Admin UI is a blank password field with a configured-state placeholder; the existing secret is never rendered into HTML.
 - Blank form submission preserves the current secret; replacement values must meet the minimum length.
 
 ### Fix commit / verification
