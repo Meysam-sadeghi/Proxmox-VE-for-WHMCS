@@ -122,6 +122,135 @@ function pvewhmcs_authorize_service_action(array $params) {
 
 
 /**
+ * Return one configured product custom-field value only when it is present in
+ * that product field's Select Options. Client-submitted custom-field values are
+ * not trusted as authorization to target arbitrary PVE templates/images.
+ */
+function pvewhmcs_provisioning_allowlisted_field(array $params, $fieldName, $required = false) {
+	$value = isset($params['customfields'][$fieldName])
+		? trim((string) $params['customfields'][$fieldName])
+		: '';
+
+	if ($value === '') {
+		if ($required) {
+			throw new RuntimeException('Required provisioning option is not configured: ' . $fieldName);
+		}
+		return '';
+	}
+
+	$pid = isset($params['pid']) ? (int) $params['pid'] : 0;
+	if ($pid <= 0) {
+		throw new RuntimeException('Unable to validate product provisioning options.');
+	}
+
+	$options = pvewhmcs_reinstall_product_field_options($pid, $fieldName);
+	if (empty($options) || !array_key_exists($value, $options)) {
+		throw new RuntimeException('Provisioning option is not allowlisted for this product: ' . $fieldName);
+	}
+
+	return $value;
+}
+
+/**
+ * Normalize an allowlisted QEMU ISO option to a PVE volume ID.
+ *
+ * Existing products that store only "filename.iso" remain compatible and map
+ * to local:iso/filename.iso. Products may also explicitly use
+ * STORAGE:iso/filename.iso.
+ */
+function pvewhmcs_normalize_iso_volume($value) {
+	$value = trim((string) $value);
+	if ($value === '') {
+		return '';
+	}
+
+	if (preg_match('/^[A-Za-z0-9_.-]+\.iso$/i', $value)) {
+		return 'local:iso/' . $value;
+	}
+
+	if (preg_match(
+		'#^[A-Za-z0-9_.-]+:iso/[A-Za-z0-9_.+@-]+\.iso$#i',
+		$value
+	)) {
+		return $value;
+	}
+
+	throw new RuntimeException('Invalid ISO volume identifier.');
+}
+
+/**
+ * Validate an optional PVE node override. Membership is checked later against
+ * the node list returned by the authenticated PVE cluster.
+ */
+function pvewhmcs_validate_node_override($value) {
+	$value = trim((string) $value);
+	if ($value === '') {
+		return '';
+	}
+
+	if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/', $value)) {
+		throw new RuntimeException('Invalid Proxmox node identifier.');
+	}
+
+	return $value;
+}
+
+/**
+ * Normalize the product-controlled provisioning targets once, before any PVE
+ * path/guest setting is built.
+ */
+function pvewhmcs_validate_provisioning_fields(array $params, $vmtype) {
+	$fields = array(
+		'kvm_template' => '',
+		'lxc_template' => '',
+		'iso_volume' => '',
+		'qemu_node' => '',
+		'lxc_node' => '',
+	);
+
+	$kvmTemplate = isset($provisioningFields['kvm_template'])
+		? trim((string) $provisioningFields['kvm_template'])
+		: '';
+
+	if ($kvmTemplate !== '') {
+		$kvmTemplate = pvewhmcs_provisioning_allowlisted_field($params, 'KVMTemplate', true);
+		if (!pvewhmcs_reinstall_valid_image_value('qemu', $kvmTemplate)) {
+			throw new RuntimeException('Invalid QEMU template identifier.');
+		}
+		$fields['kvm_template'] = (string) ((int) $kvmTemplate);
+	}
+
+	if ((string) $vmtype === 'lxc') {
+		$template = pvewhmcs_provisioning_allowlisted_field($params, 'Template', true);
+		if (!pvewhmcs_reinstall_valid_image_value('lxc', $template)) {
+			throw new RuntimeException('Invalid LXC template volume identifier.');
+		}
+		$fields['lxc_template'] = $template;
+	}
+
+	$iso = isset($params['customfields']['ISO'])
+		? trim((string) $params['customfields']['ISO'])
+		: '';
+	if ($iso !== '') {
+		$iso = pvewhmcs_provisioning_allowlisted_field($params, 'ISO', true);
+		$fields['iso_volume'] = pvewhmcs_normalize_iso_volume($iso);
+	}
+
+	$fields['qemu_node'] = pvewhmcs_validate_node_override(
+		isset($params['customfields']['TPL_Node_QEMU'])
+			? $params['customfields']['TPL_Node_QEMU']
+			: ''
+	);
+	$fields['lxc_node'] = pvewhmcs_validate_node_override(
+		isset($params['customfields']['TPL_Node_LXC'])
+			? $params['customfields']['TPL_Node_LXC']
+			: ''
+	);
+
+	return $fields;
+}
+
+/**
  * Execute a callback while holding a MySQL advisory lock.
  *
  * Advisory locks serialize only this module's critical allocation sections and
@@ -322,6 +451,9 @@ function pvewhmcs_CreateAccount_locked($params) {
 	// Retrieve Plan from table
 	$plan = Capsule::table('mod_pvewhmcs_plans')->where('id', '=', $params['configoption1'])->get()[0];
 
+	// Validate all product-controlled PVE targets before building paths/settings.
+	$provisioningFields = pvewhmcs_validate_provisioning_fields($params, $plan->vmtype);
+
 	// PVE Host - Connection Info
 	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 	$serverusername = $params["serverusername"];
@@ -340,17 +472,20 @@ function pvewhmcs_CreateAccount_locked($params) {
 	////////////////////
 	// CREATE IF QEMU //
 	////////////////////
-	if (!empty($params['customfields']['KVMTemplate'])) {
+	if ($provisioningFields['kvm_template'] !== '') {
 		// QEMU TEMPLATE - CREATION LOGIC
 		$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport, true, true);
 		if ($proxmox->login()) {
 			// Get template node: prefer TPL_Node_QEMU custom field, fallback to first node
 			$nodes = $proxmox->get_node_list();
-			if (!empty($params['customfields']['TPL_Node_QEMU'])) {
-				$template_node = $params['customfields']['TPL_Node_QEMU'];
+			if ($provisioningFields['qemu_node'] !== '') {
+				if (!in_array($provisioningFields['qemu_node'], $nodes, true)) {
+					throw new RuntimeException('Configured QEMU template node is not a member of this PVE cluster.');
+				}
+				$template_node = $provisioningFields['qemu_node'];
 			} else {
-				// AUTO-DISCOVERY: Find where the template lives
-				$template_node = pvewhmcs_find_node_by_vmid($proxmox, $params['customfields']['KVMTemplate']);
+				// AUTO-DISCOVERY: Find where the allowlisted template lives.
+				$template_node = pvewhmcs_find_node_by_vmid($proxmox, $provisioningFields['kvm_template']);
 			}
 
 			// DEBUG: Log Node Selection logic
@@ -360,12 +495,10 @@ function pvewhmcs_CreateAccount_locked($params) {
 					'Node Selection Debug',
 					array(
 						'serviceid' => (int) $params['serviceid'],
-						'template_vmid' => isset($params['customfields']['KVMTemplate'])
-							? (int) $params['customfields']['KVMTemplate']
+						'template_vmid' => isset($provisioningFields['kvm_template'])
+							? (int) $provisioningFields['kvm_template']
 							: null,
-						'tpl_node_input' => isset($params['customfields']['TPL_Node_QEMU'])
-							? (string) $params['customfields']['TPL_Node_QEMU']
-							: '',
+						'tpl_node_input' => (string) $provisioningFields['qemu_node'],
 						'available_nodes' => $nodes,
 						'selected_template_node' => $template_node
 					),
@@ -388,7 +521,7 @@ function pvewhmcs_CreateAccount_locked($params) {
 					'full' => true,
 					'target' => $template_node,
 				);
-				$path = '/nodes/' . $template_node . '/qemu/' . $params['customfields']['KVMTemplate'] . '/clone';
+				$path = '/nodes/' . $template_node . '/qemu/' . (int) $provisioningFields['kvm_template'] . '/clone';
 				$response = $proxmox->post($path, $settings);
 
 				return array(
@@ -540,7 +673,7 @@ function pvewhmcs_CreateAccount_locked($params) {
 			///////////////////////////
 			// LXC: Preparation Work //
 			///////////////////////////
-			$vm_settings['ostemplate'] = $params['customfields']['Template'];
+			$vm_settings['ostemplate'] = $provisioningFields['lxc_template'];
 			$vm_settings['swap'] = $plan->swap;
 			$vm_settings['rootfs'] = $plan->storage . ':' . $plan->disk;
 			$vm_settings['bwlimit'] = $plan->diskio;
@@ -615,9 +748,9 @@ function pvewhmcs_CreateAccount_locked($params) {
 			}
 			$vm_settings['bwlimit'] = $plan->diskio;
 
-			// ISO: Attach file to the guest
-			if (isset($params['customfields']['ISO'])) {
-				$vm_settings['ide2'] = 'local:iso/' . $params['customfields']['ISO'] . ',media=cdrom';
+			// ISO: attach only the validated/allowlisted PVE ISO volume.
+			if ($provisioningFields['iso_volume'] !== '') {
+				$vm_settings['ide2'] = $provisioningFields['iso_volume'] . ',media=cdrom';
 			}
 
 			// NET: Config specifics for guest networking
@@ -663,8 +796,11 @@ function pvewhmcs_CreateAccount_locked($params) {
 			if ($proxmox->login()) {
 				// Get template node: prefer TPL_Node_LXC custom field for LXC, fallback to first node
 				$nodes = $proxmox->get_node_list();
-				if ($plan->vmtype != 'kvm' && !empty($params['customfields']['TPL_Node_LXC'])) {
-					$template_node = $params['customfields']['TPL_Node_LXC'];
+				if ($plan->vmtype != 'kvm' && $provisioningFields['lxc_node'] !== '') {
+					if (!in_array($provisioningFields['lxc_node'], $nodes, true)) {
+						throw new RuntimeException('Configured LXC template node is not a member of this PVE cluster.');
+					}
+					$template_node = $provisioningFields['lxc_node'];
 				} else {
 					$template_node = $nodes[0];
 				}
