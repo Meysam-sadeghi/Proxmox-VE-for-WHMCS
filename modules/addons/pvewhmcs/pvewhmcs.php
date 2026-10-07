@@ -2355,61 +2355,141 @@ function removeIpPool($id) {
 // IP POOL FORM ACTION: Add IP to Pool
 function add_ip_2_pool() {
 	require_once(ROOTDIR.'/modules/addons/pvewhmcs/Ipv4/Subnet.php');
-	echo '<form method="post">
-	<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
+
+	echo '<form method="post">';
+	echo pvewhmcs_admin_csrf_input();
+	echo '<table class="form" border="0" cellpadding="3" cellspacing="1" width="100%">
 	<tr>
 	<td class="fieldlabel">IPv4 Pool</td>
 	<td class="fieldarea">
-	<select class="form-control select-inline" name="pool_id">';
+	<select class="form-control select-inline" name="pool_id" required>';
+
+	$gateways = array();
 	foreach (Capsule::table('mod_pvewhmcs_ip_pools')->get() as $pool) {
 		echo '<option value="' . (int) $pool->id . '">' . pvewhmcs_e($pool->title) . '</option>';
-		$gateways[] = $pool->gateway;
+		if (filter_var($pool->gateway, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+			$gateways[] = (string) $pool->gateway;
+		}
 	}
+
 	echo '</select>
 	</td>
 	</tr>
 	<tr>
 	<td class="fieldlabel">Address/Prefix</td>
 	<td class="fieldarea">
-	<input type="text" name="ipblock"/>
-	IPv4 prefix with CIDR e.g. 172.16.255.230/27, or for single /32 address don\'t use CIDR
+	<input type="text" name="ipblock" required/>
+	IPv4 prefix with CIDR e.g. 172.16.255.230/27, or a single IPv4 address.
+	Maximum import size: 4096 addresses.
 	</td>
 	</tr>
 	</table>
 	<input type="submit" name="assignIP2pool" value="Add"/>
 	</form>';
-	if (isset($_POST['assignIP2pool'])) {
-			// check if single IP address
-		if ((strpos($_POST['ipblock'],'/'))!=false) {
-			$subnet=Ipv4_Subnet::fromString($_POST['ipblock']);
-			$ips = $subnet->getIterator();
-			foreach($ips as $ip) {
-				if (!in_array($ip, $gateways)) {
-					Capsule::table('mod_pvewhmcs_ip_addresses')->insert(
-						[
-							'pool_id' => $_POST['pool_id'],
-							'ipaddress' => $ip,
-							'mask' => $subnet->getNetmask(),
-						]
-					);
+
+	if (!isset($_POST['assignIP2pool'])) {
+		return;
+	}
+
+	$poolId = isset($_POST['pool_id']) ? (int) $_POST['pool_id'] : 0;
+	$ipBlock = isset($_POST['ipblock']) ? trim((string) $_POST['ipblock']) : '';
+
+	if (
+		$poolId <= 0
+		|| !Capsule::table('mod_pvewhmcs_ip_pools')->where('id', '=', $poolId)->exists()
+	) {
+		throw new InvalidArgumentException('Invalid IPv4 pool.');
+	}
+
+	if ($ipBlock === '' || strlen($ipBlock) > 64) {
+		throw new InvalidArgumentException('Invalid IPv4 address/prefix.');
+	}
+
+	$rows = array();
+
+	if (strpos($ipBlock, '/') !== false) {
+		if (!preg_match('#^([^/]+)/([0-9]{1,2})$#', $ipBlock, $matches)) {
+			throw new InvalidArgumentException('Invalid IPv4 CIDR notation.');
+		}
+
+		$baseIp = $matches[1];
+		$prefix = (int) $matches[2];
+
+		if (
+			!filter_var($baseIp, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+			|| $prefix < 0
+			|| $prefix > 32
+		) {
+			throw new InvalidArgumentException('Invalid IPv4 CIDR notation.');
+		}
+
+		$addressCount = 2 ** (32 - $prefix);
+		if ($addressCount > 4096) {
+			throw new InvalidArgumentException(
+				'IPv4 import is limited to 4096 addresses. Use /20 or a smaller range.'
+			);
+		}
+
+		$subnet = Ipv4_Subnet::fromString($ipBlock);
+		$mask = (string) $subnet->getNetmask();
+
+		foreach ($subnet->getIterator() as $ip) {
+			$ip = (string) $ip;
+
+			if (
+				!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+				|| in_array($ip, $gateways, true)
+			) {
+				continue;
+			}
+
+			$rows[] = array(
+				'pool_id' => $poolId,
+				'ipaddress' => $ip,
+				'mask' => $mask,
+			);
+		}
+	} else {
+		if (!filter_var($ipBlock, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+			throw new InvalidArgumentException('Invalid IPv4 address.');
+		}
+
+		if (!in_array($ipBlock, $gateways, true)) {
+			$rows[] = array(
+				'pool_id' => $poolId,
+				'ipaddress' => $ipBlock,
+				'mask' => '255.255.255.255',
+			);
+		}
+	}
+
+	// The schema has a unique IPv4 key. Avoid duplicate insert exceptions and
+	// use bounded batches to keep DB work predictable.
+	if (!empty($rows)) {
+		$addresses = array_column($rows, 'ipaddress');
+		$existing = Capsule::table('mod_pvewhmcs_ip_addresses')
+			->whereIn('ipaddress', $addresses)
+			->pluck('ipaddress')
+			->all();
+		$existingLookup = array_fill_keys(array_map('strval', $existing), true);
+
+		$rows = array_values(array_filter($rows, function ($row) use ($existingLookup) {
+			return !isset($existingLookup[(string) $row['ipaddress']]);
+		}));
+
+		Capsule::connection()->transaction(function () use ($rows) {
+			foreach (array_chunk($rows, 250) as $chunk) {
+				if (!empty($chunk)) {
+					Capsule::table('mod_pvewhmcs_ip_addresses')->insert($chunk);
 				}
 			}
-		}
-		else {
-			if (!in_array($_POST['ipblock'], $gateways)) {
-				Capsule::table('mod_pvewhmcs_ip_addresses')->insert(
-					[
-						'pool_id' => $_POST['pool_id'],
-						'ipaddress' => $_POST['ipblock'],
-						'mask' => '255.255.255.255',
-					]
-				);
-			}
-		}
-		header("Location: " . pvewhmcs_BASEURL . "&tab=ippools&action=list_ips&id=" . $_POST['pool_id']);
-		$_SESSION['pvewhmcs']['infomsg']['title'] = 'IPv4 Address/Blocks added to Pool.';
-		$_SESSION['pvewhmcs']['infomsg']['message'] = 'You can remove IPv4 Addresses from the pool.';
+		});
 	}
+
+	$_SESSION['pvewhmcs']['infomsg']['title'] = 'IPv4 Address/Blocks added to Pool.';
+	$_SESSION['pvewhmcs']['infomsg']['message'] = 'Validated IPv4 addresses were added; duplicates and pool gateways were skipped.';
+	header("Location: " . pvewhmcs_BASEURL . "&tab=ippools&action=list_ips&id=" . $poolId);
+	exit;
 }
 
 // IP POOL FORM: List IPs in Pool
