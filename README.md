@@ -75,7 +75,7 @@ Please note specific VNC & Network requirements below - read 100% of the README.
 
 #### Provisioning identity: dedicated PVE API token — root is prohibited
 
-**Do not configure `root@pam` or a token backed by `root@pam`. The module now rejects root-backed credentials.**
+**Do not configure `root@pam`, a token backed by `root@pam`, or a normal username/password account for provisioning. Management authentication is API-token-only.**
 
 Create a dedicated Proxmox user and a privilege-separated API token. Proxmox documents that an API token's permissions are always a subset of its backing user, and `privsep=1` allows the token to be restricted further.
 
