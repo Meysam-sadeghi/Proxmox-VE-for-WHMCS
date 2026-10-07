@@ -2,7 +2,8 @@
 
 > **Repository:** `Meysam-sadeghi/Proxmox-VE-for-WHMCS`  
 > **Audit date:** 2026-10-07  
-> **Reviewed code baseline:** `7ff41ccecde7e1d846860e3b24208129ee8fdd42`  
+> **Original audit baseline:** `7ff41ccecde7e1d846860e3b24208129ee8fdd42`  
+> **Security-hardened source baseline:** `d4b61805d5d566220ebcf3bbd8239a78ca5a3651`  
 > **Module version:** 1.3.5  
 > **Companion architecture map:** `SYSTEM_MAP.md`
 
@@ -10,7 +11,7 @@
 
 This file is the authoritative security-review handoff for future remediation work.
 
-**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat a full repository audit unless source code has materially changed since the reviewed baseline. The original full-audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; post-audit runtime changes for the Proxmox VE 9+ Reinstall feature and HTTP response parsing were specifically reviewed through `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`. If HEAD is newer, compare against that post-audit source baseline first. Documentation-only commits do not invalidate this audit.
+**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; all tracked source-level remediations SEC-001 through SEC-016 were merged in PR #2 at `d4b61805d5d566220ebcf3bbd8239a78ca5a3651`. For future work, compare the current HEAD against `d4b61805d5d566220ebcf3bbd8239a78ca5a3651` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
 
 When fixing an item:
 
@@ -54,9 +55,9 @@ Static source review cannot prove that a deployed WHMCS or Proxmox host has neve
 
 ---
 
-# Remediation priority
+# Historical remediation order
 
-Recommended order:
+The findings were remediated in this priority order:
 
 1. **SEC-001 — TLS verification**
 2. **SEC-002 — privileged PVE API identity**
@@ -72,7 +73,7 @@ Recommended order:
 12. **SEC-012 — noVNC destination control / allowlisting**
 13. Then LOW-severity cleanup items.
 
-A client Reinstall/Rebuild action was added after the original audit at the user's direction. Its own ownership, one-time CSRF nonce, confirmation, allowlisting, concurrency lock and rollback controls are documented below, but **SEC-001 through SEC-008 remain open and materially affect the production security posture of the module as a whole**.
+A client Reinstall/Rebuild action was added after the original audit. Its ownership, native WHMCS CSRF validation, one-time nonce, confirmation, template allowlisting, concurrency lock and rollback controls are documented below. The surrounding module findings SEC-001 through SEC-016 now have source-level remediations; live WHMCS + Proxmox VE 9 acceptance testing is still required before changing their status from `FIXED - NEEDS VERIFICATION` to `VERIFIED`.
 
 ---
 
@@ -844,6 +845,7 @@ Residual/security dependencies:
 
 # Audit maintenance history
 
+- **2026-10-07:** PR #2 merged at `d4b61805d5d566220ebcf3bbd8239a78ca5a3651`; all tracked source-level remediations SEC-001 through SEC-016 are now on `master`. PHP Syntax Check passed on the merge commit; Security Regression checks passed all substantive security steps on the merged source.
 - **2026-10-07:** Security hardening implemented for SEC-001 through SEC-016; source-level fixes are awaiting live WHMCS + PVE 9 acceptance verification.
 - **2026-10-07:** Added security-regression CI to prevent reintroduction of disabled TLS, root credentials, ticket-bearing console links, GET deletes and the noVNC ZRLE bound regression.
 - **2026-10-07:** Initial full static review documented.
