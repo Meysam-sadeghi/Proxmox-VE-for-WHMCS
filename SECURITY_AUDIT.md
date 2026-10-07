@@ -10,7 +10,7 @@
 
 This file is the authoritative security-review handoff for future remediation work.
 
-**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat a full repository audit unless source code has materially changed since the reviewed baseline. If HEAD is newer, compare the baseline against HEAD and inspect changed source files first. Documentation-only commits do not invalidate this audit.
+**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat a full repository audit unless source code has materially changed since the reviewed baseline. The original full-audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; post-audit runtime changes for the Proxmox VE 9+ Reinstall feature and HTTP response parsing were specifically reviewed through `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8`. If HEAD is newer, compare against that post-audit source baseline first. Documentation-only commits do not invalidate this audit.
 
 When fixing an item:
 
@@ -81,7 +81,7 @@ Recommended order:
 12. **SEC-012 — noVNC destination control / allowlisting**
 13. Then LOW-severity cleanup items.
 
-Do not redesign Reinstall/Rebuild or add new privileged client actions until SEC-001 through SEC-008 are addressed or explicitly risk-accepted.
+A client Reinstall/Rebuild action was added after the original audit at the user's direction. Its own ownership, one-time CSRF nonce, confirmation, allowlisting, concurrency lock and rollback controls are documented below, but **SEC-001 through SEC-008 remain open and materially affect the production security posture of the module as a whole**.
 
 ---
 
@@ -730,14 +730,37 @@ Implemented buttons:
 - Statistics
 - Check Status
 - noVNC console
+- Reinstall OS
 
 ## Reinstall / rebuild
 
-**Not implemented in the reviewed version.**
+**Implemented after the original audit baseline; source reviewed through `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8`.**
 
-No client custom button, provisioning function, route, or reinstall/rebuild workflow was found. The current `ISO`, `Template`, and `KVMTemplate` fields are used during initial provisioning, not as a client-initiated reinstall mechanism.
+Primary file: `modules/servers/pvewhmcs/reinstall.php`.
 
-A future reinstall feature should be designed only after the high-priority security findings above are fixed, because reinstall is a destructive privileged operation and requires strong service ownership checks, CSRF protection, confirmation, rate limiting, template allowlisting, task locking and safe credential regeneration.
+Security-relevant design:
+
+- Requires the WHMCS service to be Active and owned by the invoking client.
+- Requires the module VM mapping to belong to the same client and rejects duplicate-VMID ownership ambiguity.
+- Requires Proxmox VE major version 9+ at runtime.
+- Accepts only allowlisted QEMU/LXC template values from the product/template configuration; arbitrary client-supplied VMIDs/volume paths are rejected.
+- QEMU sources must be actual PVE templates and must contain Cloud-Init.
+- Uses a cryptographically random one-time per-service session nonce plus explicit destructive confirmation and the literal confirmation phrase `REINSTALL`.
+- Uses a per-service MySQL advisory lock against simultaneous reinstall requests.
+- Uses a replacement-first cutover: build new VM/CT under a new VMID before stopping the current guest.
+- Starts the replacement before the WHMCS mapping is switched.
+- On startup or other pre-mapping cutover failure, the new guest is removed and the previous guest is best-effort restarted if it was previously running.
+- Mapping/template state is moved in a database transaction.
+- A new cryptographically random guest password is generated; the reinstall workflow does not write that password to module logs.
+- The new password is stored via WHMCS `UpdateClientProduct`; failure to persist it is surfaced to the client without rolling back an otherwise successful replacement.
+- Old-guest deletion is performed only after the replacement is running and mapped; a cleanup failure leaves a warning rather than deleting the working replacement.
+
+Residual/security dependencies:
+
+- The reinstall path still relies on the shared `PVE2_API` transport, so **SEC-001 (TLS verification disabled)** remains applicable.
+- It still relies on the configured normal PVE service credential, so **SEC-002 (over-privileged/root identity)** remains applicable until that architecture is hardened.
+- The rest of the module's existing logging and client/admin output issues remain open.
+- No live WHMCS + Proxmox VE 9 integration environment was available during this code change; production enablement requires runtime verification on a non-production service first.
 
 ---
 
@@ -748,3 +771,7 @@ A future reinstall feature should be designed only after the high-priority secur
 - Fork/upstream tree equality verified at baseline.
 - noVNC v1.7.0 vendor integrity verified: 208/208 bundled files identical to official release.
 - `SYSTEM_MAP.md` created as architecture/context handoff.
+- **2026-10-07:** Added client-side Proxmox VE 9+ Reinstall OS workflow in `modules/servers/pvewhmcs/reinstall.php` and exposed it through the WHMCS client custom-button mechanism.
+- Reinstall implementation commits reviewed: `52e41c649df43ac4adbe6bae692f81a41ead0d45`, `fa8736ca8064c14221531170228e36b2d0a49d75`, `054d8da0a2c7d0beee1aee1c28f1f01fa214075f`.
+- PVE API transport response handling updated for protocol-independent HTTP status/header parsing in `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8`.
+- Existing security findings were **not** marked fixed by the Reinstall work; SEC-001 through SEC-016 retain their previous statuses unless separately remediated and verified.
