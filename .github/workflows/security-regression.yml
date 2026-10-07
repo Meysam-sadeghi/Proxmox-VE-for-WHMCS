@@ -250,6 +250,41 @@ jobs:
           ! grep -Fq "echo '<td>' . \$pool->gateway" modules/addons/pvewhmcs/pvewhmcs.php
           ! grep -Fq "value=\"' . \$config->vnc_secret" modules/addons/pvewhmcs/pvewhmcs.php
 
+      - name: Verify secure console cookie-domain derivation
+        shell: bash
+        run: |
+          set -euo pipefail
+          php -r '
+            require "modules/addons/pvewhmcs/security.php";
+
+            $cases = array(
+                array("billing.example.com", "pve.example.com", ".example.com"),
+                array("billing.example.co.uk", "pve.example.co.uk", ".example.co.uk"),
+                array("BILLING.Example.COM.", "PVE.example.com.", ".example.com"),
+                array("billing.example.com", "pve.eu.example.com", ".example.com"),
+                array("billing.co.uk", "pve.co.uk", null),
+                array("127.0.0.1", "pve.example.com", null),
+                array("billing.example.com", "203.0.113.10", null),
+                array("billing.example.com", "pve.other.net", null)
+            );
+
+            foreach ($cases as $case) {
+                [$whmcs, $pve, $expected] = $case;
+                $actual = pvewhmcs_console_cookie_domain($whmcs, $pve);
+                if ($actual !== $expected) {
+                    fwrite(
+                        STDERR,
+                        "cookie-domain mismatch for {$whmcs} / {$pve}: "
+                        . var_export($actual, true)
+                        . " expected "
+                        . var_export($expected, true)
+                        . "\n"
+                    );
+                    exit(1);
+                }
+            }
+          '
+
       - name: Keep legacy custom cryptography removed
         shell: bash
         run: |
