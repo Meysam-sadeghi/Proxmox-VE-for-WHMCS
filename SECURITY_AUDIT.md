@@ -895,6 +895,9 @@ Internal VM/node identifiers, backend error text and PVE response details can re
 - Missing service mapping, VMID/node resolution failures and PVE response errors are no longer rendered with internal identifiers.
 - Reinstall no longer renders `$e->getMessage()`; it returns a generic support-oriented message while the redacted diagnostic path remains server-side.
 - Security CI behaviorally verifies that a synthetic error containing a node name, VMID and password does not appear in the public message and that the password is redacted from the captured log.
+- Client Area PVE retrieval is now wrapped in a full `Throwable` boundary after ownership validation; PVE authentication, node lookup, cluster-resource misses, config/stat retrieval and other backend failures all return the same generic escaped template error.
+- Direct `echo` / `exit` error paths were removed from `pvewhmcs_ClientArea()`.
+- Security CI structurally rejects future direct Client Area `echo`/`exit` failure output and requires the PVE-backed portion to remain inside the generic error boundary.
 
 ### Acceptance criteria
 
@@ -907,7 +910,7 @@ Internal VM/node identifiers, backend error text and PVE response details can re
 ### Fix commit / verification
 
 - Commit: `eeeb156e117146d6f51b27f9feacdd3d1dbb71f9`
-- Verification: PHP Syntax Check and Security Regression CI must pass. Staging should exercise failed power actions and a forced Reinstall failure and confirm only generic customer messages are rendered.
+- Verification: PHP Syntax Check and Security Regression CI must pass. Staging should exercise failed power actions, a forced Reinstall failure, and forced Client Area PVE/node failures and confirm only generic customer messages are rendered.
 
 ---
 
@@ -977,6 +980,7 @@ If a routing/context weakness elsewhere ever supplied another service ID to this
 - Authorization failure is securely/redacted logged server-side.
 - Failure returns only a generic `client_error` and empty VM/status/statistics structures.
 - `clientarea.tpl` renders the escaped generic error and does not render guest details when `client_error` exists.
+- The entire post-authorization PVE retrieval path now shares the same generic Client Area error response, so runtime PVE exceptions cannot bypass the ownership/error boundary through direct output.
 - CI structurally requires authorization to occur before `new PVE2_API` in the Client Area entry point and requires the template error guard.
 
 ### Acceptance criteria
