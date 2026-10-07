@@ -185,6 +185,60 @@ jobs:
           ! grep -Fq 'json_encode($cluster_resources)' modules/addons/pvewhmcs/pvewhmcs.php
           ! grep -Fq 'json_encode($tasks)' modules/addons/pvewhmcs/pvewhmcs.php
 
+      - name: Require centralized secret-safe module logging
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # First-party code may only invoke WHMCS logModuleCall through the
+          # mandatory wrapper in security.php.
+          ! grep -RIn --include='*.php' 'logModuleCall('             modules/servers/pvewhmcs             modules/addons/pvewhmcs/pvewhmcs.php
+
+          grep -Fq 'function pvewhmcs_secure_log_module_call' modules/addons/pvewhmcs/security.php
+
+          php -r '
+            $GLOBALS["captured_log"] = null;
+
+            function logModuleCall($module, $action, $request, $response, $processedData = "", $replaceVars = array()) {
+                $GLOBALS["captured_log"] = array(
+                    "module" => $module,
+                    "action" => $action,
+                    "request" => $request,
+                    "response" => $response,
+                    "processedData" => $processedData,
+                    "replaceVars" => $replaceVars
+                );
+            }
+
+            require "modules/addons/pvewhmcs/security.php";
+
+            pvewhmcs_secure_log_module_call(
+                "pvewhmcs",
+                "test",
+                array(
+                    "serverpassword" => "request-secret",
+                    "nested" => array("authorization" => "Bearer token-secret")
+                ),
+                "PVEAuthCookie=pve-cookie-secret vncticket=vnc-ticket-secret",
+                array("password" => "processed-secret"),
+                array("replace-secret")
+            );
+
+            $encoded = json_encode($GLOBALS["captured_log"]);
+            foreach (array(
+                "request-secret",
+                "token-secret",
+                "pve-cookie-secret",
+                "vnc-ticket-secret",
+                "processed-secret"
+            ) as $secret) {
+                if (strpos($encoded, $secret) !== false) {
+                    fwrite(STDERR, "secret reached logModuleCall: " . $secret . "\n");
+                    exit(1);
+                }
+            }
+          '
+
       - name: Keep console tickets out of public HTTP links
         shell: bash
         run: |
