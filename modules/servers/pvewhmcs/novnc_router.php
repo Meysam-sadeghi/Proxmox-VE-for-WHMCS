@@ -124,7 +124,9 @@ try {
         (string) $server->username,
         'pam',
         (string) $decrypted['password'],
-        $apiPort
+        $apiPort,
+        true,
+        true
     );
 
     if (!$proxmox->login()) {
