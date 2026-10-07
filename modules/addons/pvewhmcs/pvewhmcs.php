@@ -283,6 +283,16 @@ function pvewhmcs_addon_fetch_rrd($proxmox, $path, $timeframe, $ds) {
 function pvewhmcs_output($vars) {
 	$modulelink = $vars['modulelink'];
 
+	// Transparently migrate any legacy plaintext VNC credential the first time
+	// an administrator opens the addon after this security update.
+	if (pvewhmcs_has_vnc_secret()) {
+		try {
+			pvewhmcs_get_vnc_secret();
+		} catch (\Throwable $e) {
+			throw new RuntimeException('Unable to migrate the stored VNC secret securely.');
+		}
+	}
+
 	// Every state-changing addon request must carry a valid WHMCS admin CSRF token.
 	if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
 		if (!function_exists('check_token')) {
