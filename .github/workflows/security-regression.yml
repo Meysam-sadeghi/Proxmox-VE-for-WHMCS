@@ -40,7 +40,11 @@ jobs:
         run: |
           set -euo pipefail
           ! grep -InE 'novnc_router\.php\?.*(pveticket|vncticket|host=|port=|path=)' modules/servers/pvewhmcs/pvewhmcs.php
-          ! grep -InE '\$_GET\[(.)(host|port|path|pveticket|vncticket)\1\]' modules/servers/pvewhmcs/novnc_router.php
+          ! grep -Fq "\$_GET['host']" modules/servers/pvewhmcs/novnc_router.php
+          ! grep -Fq "\$_GET['port']" modules/servers/pvewhmcs/novnc_router.php
+          ! grep -Fq "\$_GET['path']" modules/servers/pvewhmcs/novnc_router.php
+          ! grep -Fq "\$_GET['pveticket']" modules/servers/pvewhmcs/novnc_router.php
+          ! grep -Fq "\$_GET['vncticket']" modules/servers/pvewhmcs/novnc_router.php
           grep -Fq "where('userid', '=', $clientId)" modules/servers/pvewhmcs/novnc_router.php
           grep -Fq "Referrer-Policy: no-referrer" modules/servers/pvewhmcs/novnc_router.php
 
@@ -58,7 +62,7 @@ jobs:
           set -euo pipefail
           grep -Fq "pvewhmcs_encrypt_secret" modules/addons/pvewhmcs/security.php
           grep -Fq 'type="password"' modules/addons/pvewhmcs/pvewhmcs.php
-          ! grep -In 'value="' modules/addons/pvewhmcs/pvewhmcs.php | grep -q "vnc_secret"
+          ! grep -InE 'name="vnc_secret"[^>]*value="[^"]+"' modules/addons/pvewhmcs/pvewhmcs.php
 
       - name: Keep ZRLE CPU bound guard
         shell: bash
