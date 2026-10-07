@@ -764,7 +764,7 @@ Residual/security dependencies:
 - The reinstall path still relies on the shared `PVE2_API` transport, so **SEC-001 (TLS verification disabled)** remains applicable.
 - It still relies on the configured normal PVE service credential, so **SEC-002 (over-privileged/root identity)** remains applicable until that architecture is hardened.
 - The rest of the module's existing logging and client/admin output issues remain open.
-- No live WHMCS + Proxmox VE 9 integration environment was available during this code change; production enablement requires runtime verification on a non-production service first.
+- GitHub Actions PHP syntax validation passed for the complete PHP source tree at source commit `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f` (run `37682601499`). No live WHMCS + Proxmox VE 9 integration environment was available during this code change; production enablement still requires runtime verification on a non-production service first.
 
 ---
 
@@ -779,4 +779,4 @@ Residual/security dependencies:
 - Reinstall implementation commits reviewed: `52e41c649df43ac4adbe6bae692f81a41ead0d45`, `fa8736ca8064c14221531170228e36b2d0a49d75`, `054d8da0a2c7d0beee1aee1c28f1f01fa214075f`.
 - PVE API transport response handling updated for protocol-independent HTTP status/header parsing through `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`; the same commit fixed local ticket-expiry logic and made all API calls honor the configured TLS verification flag. TLS verification still defaults off, so SEC-001 remains OPEN.
 - Existing security findings were **not** marked fixed by the Reinstall work; SEC-001 through SEC-016 retain their previous statuses unless separately remediated and verified.
-- Added `.github/workflows/php-lint.yml` so future PHP-changing pushes/PRs have a repository-level syntax check. Connector-authored commits did not produce a workflow run during this session, so this is not recorded as a completed runtime/lint verification.
+- Added `.github/workflows/php-lint.yml` so future PHP-changing pushes/PRs have a repository-level syntax check. GitHub Actions run `37682601499` completed successfully against source commit `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`; its `Lint PHP sources` step passed. This validates PHP syntax only, not live WHMCS/PVE behavior.
