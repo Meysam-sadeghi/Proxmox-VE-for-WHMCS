@@ -18,7 +18,7 @@ use Illuminate\Database\Capsule\Manager as Capsule;
  */
 function pvewhmcs_redact_log_value($value)
 {
-    $sensitiveKeyPattern = '/(?:^|_)(?:pass(?:word)?|secret|token|ticket|cookie|authorization|csrf)(?:$|_)/i';
+    $sensitiveKeyPattern = '/(?:password|passwd|passphrase|secret|token|ticket|cookie|authorization|csrf)/i';
 
     if (is_array($value)) {
         $safe = array();
