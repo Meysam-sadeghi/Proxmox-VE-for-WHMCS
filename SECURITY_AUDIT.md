@@ -460,11 +460,13 @@ Test payloads containing HTML/quotes/script-like text render as inert text in bo
 - Client Smarty output explicitly escapes guest/PVE-derived text, attributes, NIC values, SSH keys and statistics attributes.
 - Reinstall template uses explicit escaping.
 - Security regression CI now rejects bare Smarty interpolation in the client templates and guards the historically vulnerable stored admin fields from being reintroduced without escaping.
+- The IPv4-pool admin table now validates its pool ID before use and escapes DB-derived IP address/subnet text; service IDs/user IDs are cast and the generated service link is attribute-escaped.
+- Security Regression CI now also rejects direct one-line rendering of DB/PVE object properties in addon `echo` statements unless the value is explicitly escaped/cast, and pins the corrected `list_ips($poolId)` pattern.
 
 ### Fix commit / verification
 
 - Commits: `e16f9fd0047508ba04756fa22df06763c0732025`, `12208364cdb401701419354c8d5dc91853e8ed5e`, `2a61169d0d532759522bfc5edfbdf257efda2d9e`
-- Verification: inject HTML/quote/script test strings into staging plan/PVE fields and verify inert rendering before marking VERIFIED.
+- Verification: static scan now finds no direct raw DB/PVE object-property echo in the addon, and CI guards client/admin output patterns. Inject HTML/quote/script test strings into staging plan/PVE/IP-pool fields and verify inert rendering before marking VERIFIED.
 
 ## SEC-009 — VNC secret stored/displayed as plaintext
 
