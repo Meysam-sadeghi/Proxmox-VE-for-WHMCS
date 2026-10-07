@@ -46,6 +46,54 @@ jobs:
             }
           '
 
+      - name: Verify PVE login ticket expiry behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          php -r '
+            require "modules/addons/pvewhmcs/proxmox.php";
+
+            $api = new PVE2_API(
+                "localhost",
+                "vnc",
+                "pve",
+                "test-console-secret",
+                8006,
+                true,
+                false
+            );
+
+            $class = new ReflectionClass($api);
+            $ticket = $class->getProperty("login_ticket");
+            $timestamp = $class->getProperty("login_ticket_timestamp");
+            $check = $class->getMethod("check_login_ticket");
+            $ticket->setAccessible(true);
+            $timestamp->setAccessible(true);
+            $check->setAccessible(true);
+
+            $ticket->setValue($api, array(
+                "ticket" => "PVE:test-ticket",
+                "CSRFPreventionToken" => "test-csrf"
+            ));
+            $timestamp->setValue($api, time() - 60);
+
+            if ($check->invoke($api) !== true) {
+                fwrite(STDERR, "young PVE ticket was rejected\n");
+                exit(1);
+            }
+
+            $timestamp->setValue($api, time() - 7201);
+            if ($check->invoke($api) !== false) {
+                fwrite(STDERR, "expired PVE ticket was accepted\n");
+                exit(1);
+            }
+
+            if ($ticket->getValue($api) !== null || $timestamp->getValue($api) !== null) {
+                fwrite(STDERR, "expired PVE ticket state was not cleared\n");
+                exit(1);
+            }
+          '
+
       - name: Require root credential prohibition
         shell: bash
         run: |
