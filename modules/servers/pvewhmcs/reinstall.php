@@ -269,68 +269,43 @@ function pvewhmcs_reinstall_consume_nonce($serviceId, $provided)
 }
 
 /**
- * Render the reinstall confirmation UI.
+ * Build the WHMCS custom client-area page for reinstall.
+ *
+ * Returning templatefile + vars is the supported WHMCS provisioning-module
+ * contract for a custom client action. This avoids depending on a theme to
+ * interpret raw HTML returned from the module function.
  */
-function pvewhmcs_reinstall_render_form(array $params, $guest, array $options)
-{
-    if (empty($options)) {
-        return '<div class="alert alert-warning">'
-            . '<strong>Reinstall is not configured for this service.</strong><br>'
-            . 'For QEMU, configure allowed <code>KVMTemplate</code> options. '
-            . 'For LXC, configure allowed <code>Template</code> options. '
-            . 'Only allowlisted templates are accepted.'
-            . '</div>';
+function pvewhmcs_reinstall_render_page(
+    array $params,
+    array $options = array(),
+    $messageType = '',
+    $message = '',
+    $showForm = true,
+    $newVmid = null,
+    $newPassword = null,
+    $passwordStored = true,
+    $cleanupWarning = ''
+) {
+    $nonce = '';
+    if ($showForm && !empty($options)) {
+        $nonce = pvewhmcs_reinstall_issue_nonce((int) $params['serviceid']);
     }
 
-    $nonce = pvewhmcs_reinstall_issue_nonce((int) $params['serviceid']);
-    $html = '';
-
-    $html .= '<div class="panel panel-danger">';
-    $html .= '<div class="panel-heading"><strong>Reinstall Operating System</strong></div>';
-    $html .= '<div class="panel-body">';
-    $html .= '<div class="alert alert-danger">'
-        . '<strong>Warning:</strong> Reinstall permanently replaces the current operating system and its disk data. '
-        . 'Back up anything you need before continuing.'
-        . '</div>';
-    $html .= '<p>The replacement guest is prepared first using the Proxmox VE 9 API. '
-        . 'The current guest is stopped only after the replacement has been created successfully.</p>';
-    $html .= '<form method="post" action="">';
-    $html .= '<input type="hidden" name="pvewhmcs_reinstall_action" value="execute">';
-    $html .= '<input type="hidden" name="pvewhmcs_reinstall_nonce" value="' . pvewhmcs_reinstall_e($nonce) . '">';
-
-    $html .= '<div class="form-group">';
-    $html .= '<label for="pvewhmcs_reinstall_image">Operating System / Template</label>';
-    $html .= '<select class="form-control" id="pvewhmcs_reinstall_image" name="pvewhmcs_reinstall_image" required>';
-    $html .= '<option value="">Select an operating system...</option>';
-
-    foreach ($options as $value => $label) {
-        $html .= '<option value="' . pvewhmcs_reinstall_e($value) . '">'
-            . pvewhmcs_reinstall_e($label)
-            . '</option>';
-    }
-
-    $html .= '</select>';
-    $html .= '</div>';
-
-    $html .= '<div class="form-group">';
-    $html .= '<label for="pvewhmcs_reinstall_phrase">Type <code>REINSTALL</code> to confirm</label>';
-    $html .= '<input class="form-control" type="text" id="pvewhmcs_reinstall_phrase" '
-        . 'name="pvewhmcs_reinstall_phrase" autocomplete="off" required>';
-    $html .= '</div>';
-
-    $html .= '<div class="checkbox"><label>';
-    $html .= '<input type="checkbox" name="pvewhmcs_reinstall_confirm" value="yes" required> '
-        . 'I understand that the current OS and disk data will be destroyed.';
-    $html .= '</label></div>';
-
-    $html .= '<button type="submit" class="btn btn-danger">'
-        . '<i class="fa fa-refresh"></i> Reinstall Server'
-        . '</button>';
-    $html .= '</form>';
-    $html .= '</div>';
-    $html .= '</div>';
-
-    return $html;
+    return array(
+        'templatefile' => 'reinstall',
+        'vars' => array(
+            'reinstall_service_id' => (int) $params['serviceid'],
+            'reinstall_options' => $options,
+            'reinstall_nonce' => $nonce,
+            'reinstall_show_form' => (bool) ($showForm && !empty($options)),
+            'reinstall_message_type' => (string) $messageType,
+            'reinstall_message' => (string) $message,
+            'reinstall_new_vmid' => $newVmid !== null ? (int) $newVmid : null,
+            'reinstall_new_password' => $newPassword,
+            'reinstall_password_stored' => (bool) $passwordStored,
+            'reinstall_cleanup_warning' => (string) $cleanupWarning,
+        ),
+    );
 }
 
 /**
@@ -791,11 +766,11 @@ function pvewhmcs_Reinstall($params)
         ->first();
 
     if (!$service || (int) $service->userid !== $userId) {
-        return '<div class="alert alert-danger">Service ownership validation failed.</div>';
+        return pvewhmcs_reinstall_render_page($params, array(), 'danger', 'Service ownership validation failed.', false);
     }
 
     if ((string) $service->domainstatus !== 'Active') {
-        return '<div class="alert alert-warning">Reinstall is available only for active services.</div>';
+        return pvewhmcs_reinstall_render_page($params, array(), 'warning', 'Reinstall is available only for active services.', false);
     }
 
     $guest = Capsule::table('mod_pvewhmcs_vms')
@@ -803,11 +778,11 @@ function pvewhmcs_Reinstall($params)
         ->first();
 
     if (!$guest || (int) $guest->user_id !== $userId) {
-        return '<div class="alert alert-danger">Unable to find a valid guest mapping for this service.</div>';
+        return pvewhmcs_reinstall_render_page($params, array(), 'danger', 'Unable to find a valid guest mapping for this service.', false);
     }
 
     if (!in_array($guest->vtype, array('qemu', 'lxc'), true)) {
-        return '<div class="alert alert-danger">Unsupported guest type.</div>';
+        return pvewhmcs_reinstall_render_page($params, array(), 'danger', 'Unsupported guest type.', false);
     }
 
     $duplicateOwner = Capsule::table('mod_pvewhmcs_vms')
@@ -816,10 +791,13 @@ function pvewhmcs_Reinstall($params)
         ->first();
 
     if ($duplicateOwner) {
-        return '<div class="alert alert-danger">'
-            . 'Safety check failed: this VMID is mapped to another WHMCS service. '
-            . 'No reinstall action was performed.'
-            . '</div>';
+        return pvewhmcs_reinstall_render_page(
+            $params,
+            array(),
+            'danger',
+            'Safety check failed: this VMID is mapped to another WHMCS service. No reinstall action was performed.',
+            false
+        );
     }
 
     $options = pvewhmcs_reinstall_allowed_images($params, $guest);
@@ -829,7 +807,24 @@ function pvewhmcs_Reinstall($params)
         || !isset($_POST['pvewhmcs_reinstall_action'])
         || $_POST['pvewhmcs_reinstall_action'] !== 'execute'
     ) {
-        return pvewhmcs_reinstall_render_form($params, $guest, $options);
+        if (empty($options)) {
+            return pvewhmcs_reinstall_render_page(
+                $params,
+                array(),
+                'warning',
+                'Reinstall is not configured for this service. Configure allowlisted KVMTemplate options for QEMU or Template options for LXC.',
+                false
+            );
+        }
+
+        return pvewhmcs_reinstall_render_page($params, $options);
+    }
+
+    // WHMCS custom module actions are not automatically CSRF-validated.
+    // Require the standard WHMCS client-area token in addition to our one-time
+    // per-service nonce. check_token() reads the posted "token" value.
+    if (function_exists('check_token')) {
+        check_token();
     }
 
     if (
@@ -840,7 +835,12 @@ function pvewhmcs_Reinstall($params)
                 : ''
         )
     ) {
-        return '<div class="alert alert-danger">Reinstall request expired or failed CSRF validation. Please open Reinstall again.</div>';
+        return pvewhmcs_reinstall_render_page(
+            $params,
+            $options,
+            'danger',
+            'Reinstall request expired or failed CSRF validation. Please try again.'
+        );
     }
 
     if (
@@ -849,7 +849,12 @@ function pvewhmcs_Reinstall($params)
         || !isset($_POST['pvewhmcs_reinstall_phrase'])
         || trim((string) $_POST['pvewhmcs_reinstall_phrase']) !== 'REINSTALL'
     ) {
-        return '<div class="alert alert-danger">Reinstall confirmation was not completed. No changes were made.</div>';
+        return pvewhmcs_reinstall_render_page(
+            $params,
+            $options,
+            'danger',
+            'Reinstall confirmation was not completed. No changes were made.'
+        );
     }
 
     $selectedImage = isset($_POST['pvewhmcs_reinstall_image'])
@@ -861,11 +866,21 @@ function pvewhmcs_Reinstall($params)
         || !isset($options[$selectedImage])
         || !pvewhmcs_reinstall_valid_image_value($guest->vtype, $selectedImage)
     ) {
-        return '<div class="alert alert-danger">Invalid or non-allowlisted reinstall image. No changes were made.</div>';
+        return pvewhmcs_reinstall_render_page(
+            $params,
+            $options,
+            'danger',
+            'Invalid or non-allowlisted reinstall image. No changes were made.'
+        );
     }
 
     if (!pvewhmcs_reinstall_acquire_lock($serviceId)) {
-        return '<div class="alert alert-warning">A reinstall is already running for this service. Please do not submit it again.</div>';
+        return pvewhmcs_reinstall_render_page(
+            $params,
+            $options,
+            'warning',
+            'A reinstall is already running for this service. Please do not submit it again.'
+        );
     }
 
     $api = null;
@@ -1064,26 +1079,17 @@ function pvewhmcs_Reinstall($params)
             );
         }
 
-        $html = '<div class="alert alert-success">';
-        $html .= '<strong>Reinstall completed successfully.</strong><br>';
-        $html .= 'New VMID: <code>' . pvewhmcs_reinstall_e($newVmid) . '</code><br>';
-        $html .= 'New password: <code style="user-select:all;">'
-            . pvewhmcs_reinstall_e($newPassword)
-            . '</code><br>';
-        $html .= '<small>Copy this password now. It is not written to module logs.</small>';
-
-        if (!$passwordStored) {
-            $html .= '<br><strong>Warning:</strong> WHMCS could not save the new password to the service record. '
-                . 'Keep the password shown above and contact support.';
-        }
-
-        if ($cleanupWarning !== '') {
-            $html .= '<br><strong>Cleanup warning:</strong>' . pvewhmcs_reinstall_e($cleanupWarning);
-        }
-
-        $html .= '</div>';
-
-        return $html;
+        return pvewhmcs_reinstall_render_page(
+            $params,
+            $options,
+            'success',
+            'Reinstall completed successfully.',
+            false,
+            $newVmid,
+            $newPassword,
+            $passwordStored,
+            $cleanupWarning
+        );
     } catch (\Throwable $e) {
         if (function_exists('logActivity')) {
             logActivity(
@@ -1134,11 +1140,12 @@ function pvewhmcs_Reinstall($params)
             }
         }
 
-        return '<div class="alert alert-danger">'
-            . '<strong>Reinstall failed.</strong> '
-            . pvewhmcs_reinstall_e($e->getMessage())
-            . '<br>No password or API credential was logged by the reinstall feature.'
-            . '</div>';
+        return pvewhmcs_reinstall_render_page(
+            $params,
+            $options,
+            'danger',
+            'Reinstall failed: ' . $e->getMessage() . ' No password or API credential was logged by the reinstall feature.'
+        );
     } finally {
         pvewhmcs_reinstall_release_lock($serviceId);
     }
