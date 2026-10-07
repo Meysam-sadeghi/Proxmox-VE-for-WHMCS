@@ -753,6 +753,7 @@ jobs:
               }
 
               chdir('modules/servers/pvewhmcs');
+              define('ROOTDIR', realpath('../../..'));
               require 'pvewhmcs.php';
 
               $thrown = false;
