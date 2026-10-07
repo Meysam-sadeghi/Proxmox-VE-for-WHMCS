@@ -54,6 +54,20 @@ class PVE2_API {
 				throw new PVE2_Exception("PVE2 API: Cannot resolve {$hostname}.", 2);
 			}
 		}
+		// SECURITY: never allow WHMCS to authenticate to PVE using the
+		// cluster superuser or a token backed by that superuser. The module
+		// must use a dedicated least-privilege service identity.
+		$normalizedUsername = strtolower(trim((string) $username));
+		if (
+			($realm === 'pam' && in_array($normalizedUsername, array('root', 'root@pam'), true))
+			|| strpos($normalizedUsername, 'root@pam!') === 0
+		) {
+			throw new PVE2_Exception(
+				"PVE2 API: root@pam credentials are prohibited. Configure a dedicated least-privilege PVE API user/token.",
+				10
+			);
+		}
+
 		// Check port is between 1 and 65535.
 		if (!filter_var($port, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 65535]])) {
 			throw new PVE2_Exception("PVE2 API: Port must be an integer between 1 and 65535.", 6);
