@@ -76,6 +76,155 @@ function pvewhmcs_admin_delete_form($action, $id, array $extra = array()) {
 	return $html;
 }
 
+/**
+ * Strict admin-plan input normalization.
+ *
+ * Plan values later become Proxmox API parameters, so reject malformed or
+ * out-of-range input before it reaches persistent module configuration.
+ */
+function pvewhmcs_plan_string($name, $maxLength, $allowEmpty = false, $pattern = null) {
+	$value = isset($_POST[$name]) ? trim((string) $_POST[$name]) : '';
+
+	if (!$allowEmpty && $value === '') {
+		throw new InvalidArgumentException('Missing required plan field: ' . $name);
+	}
+	if (strlen($value) > (int) $maxLength) {
+		throw new InvalidArgumentException('Plan field is too long: ' . $name);
+	}
+	if ($value !== '' && $pattern !== null && !preg_match($pattern, $value)) {
+		throw new InvalidArgumentException('Invalid plan field: ' . $name);
+	}
+
+	return $value;
+}
+
+function pvewhmcs_plan_int($name, $min, $max, $allowEmpty = false) {
+	$raw = isset($_POST[$name]) ? trim((string) $_POST[$name]) : '';
+
+	if ($raw === '' && $allowEmpty) {
+		return null;
+	}
+	if ($raw === '' || !preg_match('/^-?[0-9]+$/', $raw)) {
+		throw new InvalidArgumentException('Plan field must be an integer: ' . $name);
+	}
+
+	$value = filter_var($raw, FILTER_VALIDATE_INT);
+	if ($value === false || $value < $min || $value > $max) {
+		throw new InvalidArgumentException(
+			'Plan field is outside the allowed range: ' . $name
+		);
+	}
+
+	return (int) $value;
+}
+
+function pvewhmcs_plan_enum($name, array $allowed) {
+	$value = isset($_POST[$name]) ? (string) $_POST[$name] : '';
+
+	if (!in_array($value, $allowed, true)) {
+		throw new InvalidArgumentException('Invalid plan option: ' . $name);
+	}
+
+	return $value;
+}
+
+function pvewhmcs_plan_bool($name) {
+	return isset($_POST[$name]) && (string) $_POST[$name] === '1' ? 1 : 0;
+}
+
+function pvewhmcs_validate_qemu_plan_input() {
+	$memory = pvewhmcs_plan_int('memory', 16, 2147483647);
+	$balloon = pvewhmcs_plan_int('balloon', 0, 2147483647);
+	if ($balloon > $memory) {
+		throw new InvalidArgumentException('Balloon memory cannot exceed configured memory.');
+	}
+
+	return array(
+		'title' => pvewhmcs_plan_string('title', 255),
+		'vmtype' => 'kvm',
+		'ostype' => pvewhmcs_plan_enum('ostype', array(
+			'l26', 'l24', 'solaris', 'win11', 'win10', 'win8',
+			'win7', 'wvista', 'wxp', 'w2k', 'other'
+		)),
+		'cpus' => pvewhmcs_plan_int('cpus', 1, 65535),
+		'cpuemu' => pvewhmcs_plan_string(
+			'cpuemu',
+			30,
+			false,
+			'/^[A-Za-z0-9][A-Za-z0-9_.+-]{0,29}$/'
+		),
+		'cores' => pvewhmcs_plan_int('cores', 1, 65535),
+		'cpulimit' => pvewhmcs_plan_int('cpulimit', 0, 65535),
+		'cpuunits' => pvewhmcs_plan_int('cpuunits', 0, 65535),
+		'memory' => $memory,
+		'balloon' => $balloon,
+		'disk' => pvewhmcs_plan_int('disk', 1, 2147483647),
+		'diskformat' => pvewhmcs_plan_enum('diskformat', array('raw', 'qcow2', 'vmdk')),
+		'diskcache' => pvewhmcs_plan_enum(
+			'diskcache',
+			array('none', 'directsync', 'writethrough', 'writeback', 'unsafe')
+		),
+		'disktype' => pvewhmcs_plan_enum('disktype', array('virtio', 'scsi', 'sata', 'ide')),
+		'diskio' => pvewhmcs_plan_int('diskio', 0, 2147483647),
+		'storage' => pvewhmcs_plan_string(
+			'storage',
+			20,
+			false,
+			'/^[A-Za-z0-9][A-Za-z0-9_.-]{0,19}$/'
+		),
+		'netmode' => pvewhmcs_plan_enum('netmode', array('bridge', 'nat', 'none')),
+		'bridge' => pvewhmcs_plan_string(
+			'bridge',
+			20,
+			true,
+			'/^[A-Za-z0-9][A-Za-z0-9_.-]{0,19}$/'
+		),
+		'vmbr' => pvewhmcs_plan_int('vmbr', 0, 255, true),
+		'netmodel' => pvewhmcs_plan_enum('netmodel', array('virtio', 'e1000', 'rtl8139', 'vmxnet3')),
+		'vlanid' => pvewhmcs_plan_int('vlanid', 1, 4094, true),
+		'netrate' => pvewhmcs_plan_int('netrate', 0, 2147483647, true) ?? 0,
+		'bw' => pvewhmcs_plan_int('bw', 0, 4294967295, true) ?? 0,
+		'ipv6' => pvewhmcs_plan_enum('ipv6', array('0', 'auto', 'dhcp', 'prefix')),
+		'kvm' => pvewhmcs_plan_bool('kvm'),
+		'onboot' => pvewhmcs_plan_bool('onboot'),
+	);
+}
+
+function pvewhmcs_validate_lxc_plan_input() {
+	return array(
+		'title' => pvewhmcs_plan_string('title', 255),
+		'vmtype' => 'lxc',
+		'cores' => pvewhmcs_plan_int('cores', 1, 65535),
+		'cpulimit' => pvewhmcs_plan_int('cpulimit', 0, 65535),
+		'cpuunits' => pvewhmcs_plan_int('cpuunits', 0, 65535),
+		'memory' => pvewhmcs_plan_int('memory', 16, 2147483647),
+		'swap' => pvewhmcs_plan_int('swap', 0, 2147483647, true) ?? 0,
+		'disk' => pvewhmcs_plan_int('disk', 1, 2147483647),
+		'diskio' => pvewhmcs_plan_int('diskio', 0, 2147483647),
+		'storage' => pvewhmcs_plan_string(
+			'storage',
+			20,
+			false,
+			'/^[A-Za-z0-9][A-Za-z0-9_.-]{0,19}$/'
+		),
+		'bridge' => pvewhmcs_plan_string(
+			'bridge',
+			20,
+			true,
+			'/^[A-Za-z0-9][A-Za-z0-9_.-]{0,19}$/'
+		),
+		'vmbr' => pvewhmcs_plan_int('vmbr', 0, 255, true),
+		'netmodel' => '',
+		'vlanid' => pvewhmcs_plan_int('vlanid', 1, 4094, true),
+		'netrate' => pvewhmcs_plan_int('netrate', 0, 2147483647, true) ?? 0,
+		'bw' => pvewhmcs_plan_int('bw', 0, 4294967295, true) ?? 0,
+		'ipv6' => pvewhmcs_plan_enum('ipv6', array('0', 'auto', 'dhcp', 'prefix')),
+		'onboot' => pvewhmcs_plan_bool('onboot'),
+		'unpriv' => pvewhmcs_plan_bool('unpriv'),
+	);
+}
+
+
 // DEP: Require the PHP API Class and shared security helpers.
 require_once('proxmox.php');
 require_once('security.php');
@@ -2173,46 +2322,17 @@ function lxc_plan_edit($id) {
 // MODULE FORM ACTION: Save QEMU Plan
 function save_qemu_plan() {
 	try {
-		Capsule::connection()->transaction(
-			function ($connectionManager)
-			{
-				/** @var \Illuminate\Database\Connection $connectionManager */
-				$connectionManager->table('mod_pvewhmcs_plans')->insert(
-					[
-						'title' => $_POST['title'],
-						'vmtype' => 'kvm',
-						'ostype' => $_POST['ostype'],
-						'cpus' => $_POST['cpus'],
-						'cpuemu' => $_POST['cpuemu'],
-						'cores' => $_POST['cores'],
-						'cpulimit' => $_POST['cpulimit'],
-						'cpuunits' => $_POST['cpuunits'],
-						'memory' => $_POST['memory'],
-						'balloon' => $_POST['balloon'],
-						'disk' => $_POST['disk'],
-						'diskformat' => $_POST['diskformat'],
-						'diskcache' => $_POST['diskcache'],
-						'disktype' => $_POST['disktype'],
-						'diskio' => $_POST['diskio'],
-						'storage' => $_POST['storage'],
-						'netmode' => $_POST['netmode'],
-						'bridge' => $_POST['bridge'],
-						'vmbr' => $_POST['vmbr'],
-						'netmodel' => $_POST['netmodel'],
-						'vlanid' => $_POST['vlanid'],
-						'netrate' => $_POST['netrate'],
-						'bw' => $_POST['bw'],
-						'ipv6' => $_POST['ipv6'],
-						'kvm' => $_POST['kvm'],
-						'onboot' => $_POST['onboot'],
-					]
-				);
-			}
-		);
-		$_SESSION['pvewhmcs']['infomsg']['title']='QEMU Plan added.' ;
-		$_SESSION['pvewhmcs']['infomsg']['message']='Saved the QEMU Plan successfully.' ;
-		header("Location: ".pvewhmcs_BASEURL."&tab=vmplans&action=planlist");
-	} catch (\Exception $e) {
+		$planData = pvewhmcs_validate_qemu_plan_input();
+
+		Capsule::connection()->transaction(function ($connectionManager) use ($planData) {
+			/** @var \Illuminate\Database\Connection $connectionManager */
+			$connectionManager->table('mod_pvewhmcs_plans')->insert($planData);
+		});
+
+		$_SESSION['pvewhmcs']['infomsg']['title'] = 'QEMU Plan added.';
+		$_SESSION['pvewhmcs']['infomsg']['message'] = 'Saved the QEMU Plan successfully.';
+		header("Location: " . pvewhmcs_BASEURL . "&tab=vmplans&action=planlist");
+	} catch (\Throwable $e) {
 		echo 'Operation failed and was rolled back: ' . pvewhmcs_e($e->getMessage());
 	}
 }
@@ -2223,41 +2343,16 @@ function update_qemu_plan($id) {
 	if ($id <= 0) {
 		throw new InvalidArgumentException('Invalid QEMU plan target.');
 	}
+
+	$planData = pvewhmcs_validate_qemu_plan_input();
+
 	Capsule::table('mod_pvewhmcs_plans')
-	->where('id', '=', $id)
-	->update(
-		[
-			'title' => $_POST['title'],
-			'vmtype' => 'kvm',
-			'ostype' => $_POST['ostype'],
-			'cpus' => $_POST['cpus'],
-			'cpuemu' => $_POST['cpuemu'],
-			'cores' => $_POST['cores'],
-			'cpulimit' => $_POST['cpulimit'],
-			'cpuunits' => $_POST['cpuunits'],
-			'memory' => $_POST['memory'],
-			'balloon' => $_POST['balloon'],
-			'disk' => $_POST['disk'],
-			'diskformat' => $_POST['diskformat'],
-			'diskcache' => $_POST['diskcache'],
-			'disktype' => $_POST['disktype'],
-			'diskio' => $_POST['diskio'],
-			'storage' => $_POST['storage'],
-			'netmode' => $_POST['netmode'],
-			'bridge' => $_POST['bridge'],
-			'vmbr' => $_POST['vmbr'],
-			'netmodel' => $_POST['netmodel'],
-			'vlanid' => $_POST['vlanid'],
-			'netrate' => $_POST['netrate'],
-			'bw' => $_POST['bw'],
-			'ipv6' => $_POST['ipv6'],
-			'kvm' => $_POST['kvm'],
-			'onboot' => $_POST['onboot'],
-		]
-	);
-	$_SESSION['pvewhmcs']['infomsg']['title']='QEMU Plan updated.' ;
-	$_SESSION['pvewhmcs']['infomsg']['message']='Updated the QEMU Plan successfully. (Updating plans will not alter existing VMs)' ;
-	header("Location: ".pvewhmcs_BASEURL."&tab=vmplans&action=planlist");
+		->where('id', '=', $id)
+		->update($planData);
+
+	$_SESSION['pvewhmcs']['infomsg']['title'] = 'QEMU Plan updated.';
+	$_SESSION['pvewhmcs']['infomsg']['message'] = 'Updated the QEMU Plan successfully. (Updating plans will not alter existing VMs)';
+	header("Location: " . pvewhmcs_BASEURL . "&tab=vmplans&action=planlist");
 }
 
 // MODULE FORM ACTION: Remove Plan
@@ -2271,39 +2366,17 @@ function remove_plan($id) {
 // MODULE FORM ACTION: Save LXC Plan
 function save_lxc_plan() {
 	try {
-		Capsule::connection()->transaction(
-			function ($connectionManager)
-			{
-				/** @var \Illuminate\Database\Connection $connectionManager */
-				$connectionManager->table('mod_pvewhmcs_plans')->insert(
-					[
-						'title' => $_POST['title'],
-						'vmtype' => 'lxc',
-						'cores' => $_POST['cores'],
-						'cpulimit' => $_POST['cpulimit'],
-						'cpuunits' => $_POST['cpuunits'],
-						'memory' => $_POST['memory'],
-						'swap' => $_POST['swap'],
-						'disk' => $_POST['disk'],
-						'diskio' => $_POST['diskio'],
-						'storage' => $_POST['storage'],
-						'bridge' => $_POST['bridge'],
-						'vmbr' => $_POST['vmbr'],
-						'netmodel' => $_POST['netmodel'],
-						'vlanid' => $_POST['vlanid'],
-						'netrate' => $_POST['netrate'],
-						'bw' => $_POST['bw'],
-						'ipv6' => $_POST['ipv6'],
-						'onboot' => $_POST['onboot'],
-						'unpriv' => $_POST['unpriv'],
-					]
-				);
-			}
-		);
-		$_SESSION['pvewhmcs']['infomsg']['title']='New LXC Plan added.' ;
-		$_SESSION['pvewhmcs']['infomsg']['message']='Saved the LXC Plan successfully.' ;
-		header("Location: ".pvewhmcs_BASEURL."&tab=vmplans&action=planlist");
-	} catch (\Exception $e) {
+		$planData = pvewhmcs_validate_lxc_plan_input();
+
+		Capsule::connection()->transaction(function ($connectionManager) use ($planData) {
+			/** @var \Illuminate\Database\Connection $connectionManager */
+			$connectionManager->table('mod_pvewhmcs_plans')->insert($planData);
+		});
+
+		$_SESSION['pvewhmcs']['infomsg']['title'] = 'New LXC Plan added.';
+		$_SESSION['pvewhmcs']['infomsg']['message'] = 'Saved the LXC Plan successfully.';
+		header("Location: " . pvewhmcs_BASEURL . "&tab=vmplans&action=planlist");
+	} catch (\Throwable $e) {
 		echo 'Operation failed and was rolled back: ' . pvewhmcs_e($e->getMessage());
 	}
 }
@@ -2314,34 +2387,16 @@ function update_lxc_plan($id) {
 	if ($id <= 0) {
 		throw new InvalidArgumentException('Invalid LXC plan target.');
 	}
+
+	$planData = pvewhmcs_validate_lxc_plan_input();
+
 	Capsule::table('mod_pvewhmcs_plans')
-	->where('id', '=', $id)
-	->update(
-		[
-			'title' => $_POST['title'],
-			'vmtype' => 'lxc',
-			'cores' => $_POST['cores'],
-			'cpulimit' => $_POST['cpulimit'],
-			'cpuunits' => $_POST['cpuunits'],
-			'memory' => $_POST['memory'],
-			'swap' => $_POST['swap'],
-			'disk' => $_POST['disk'],
-			'diskio' => $_POST['diskio'],
-			'storage' => $_POST['storage'],
-			'bridge' => $_POST['bridge'],
-			'vmbr' => $_POST['vmbr'],
-			'netmodel' => $_POST['netmodel'],
-			'vlanid' => $_POST['vlanid'],
-			'netrate' => $_POST['netrate'],
-			'bw' => $_POST['bw'],
-			'ipv6' => $_POST['ipv6'],
-			'onboot' => $_POST['onboot'],
-			'unpriv' => $_POST['unpriv'],
-		]
-	);
-	$_SESSION['pvewhmcs']['infomsg']['title']='LXC Plan updated.' ;
-	$_SESSION['pvewhmcs']['infomsg']['message']='Updated the LXC Plan successfully. (Updating plans will not alter existing CTs)' ;
-	header("Location: ".pvewhmcs_BASEURL."&tab=vmplans&action=planlist");
+		->where('id', '=', $id)
+		->update($planData);
+
+	$_SESSION['pvewhmcs']['infomsg']['title'] = 'LXC Plan updated.';
+	$_SESSION['pvewhmcs']['infomsg']['message'] = 'Updated the LXC Plan successfully. (Updating plans will not alter existing CTs)';
+	header("Location: " . pvewhmcs_BASEURL . "&tab=vmplans&action=planlist");
 }
 
 // IP POOLS: List all Pools
