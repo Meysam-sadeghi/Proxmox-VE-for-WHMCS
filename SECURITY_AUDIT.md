@@ -3,7 +3,7 @@
 > **Repository:** `Meysam-sadeghi/Proxmox-VE-for-WHMCS`  
 > **Audit date:** 2026-10-07  
 > **Original audit baseline:** `7ff41ccecde7e1d846860e3b24208129ee8fdd42`  
-> **Security-hardened source baseline:** `ea807a8f873d82bf225f11d0971bef6895be6a9d`  
+> **Security-hardened source baseline:** `91b2abb356f53ab8722a82b1580f54534e1da2ee`  
 > **Module version:** 1.3.6  
 > **Companion architecture map:** `SYSTEM_MAP.md`
 
@@ -11,7 +11,7 @@
 
 This file is the authoritative security-review handoff for future remediation work.
 
-**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; all tracked source-level remediations SEC-001 through SEC-016 were merged in PR #2, and SEC-001 was further hardened fail-closed in PR #3 at `ea807a8f873d82bf225f11d0971bef6895be6a9d`. For future work, compare the current HEAD against `ea807a8f873d82bf225f11d0971bef6895be6a9d` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
+**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; the hardened baseline now includes SEC-001 through SEC-017, with SEC-017 merged at `91b2abb356f53ab8722a82b1580f54534e1da2ee`. For future work, compare the current HEAD against `91b2abb356f53ab8722a82b1580f54534e1da2ee` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
 
 When fixing an item:
 
@@ -817,7 +817,7 @@ A compromised/admin-crafted request could persist malformed or extreme configura
 
 ### Fix commit / verification
 
-- Commit: pending merge of the SEC-017 hardening branch.
+- Commit: `91b2abb356f53ab8722a82b1580f54534e1da2ee`
 - Verification: PHP syntax and Security Regression CI must pass. Final WHMCS admin form save/update smoke testing remains required before marking VERIFIED.
 
 ---
