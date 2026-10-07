@@ -857,6 +857,143 @@ jobs:
           }
           PHP
 
+      - name: Enforce power-action ownership validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq "function pvewhmcs_authorize_service_action" modules/servers/pvewhmcs/pvewhmcs.php
+          for fn in vmStart vmReboot vmShutdown vmStop; do
+            python3 - "$fn" <<'PY'
+          import pathlib, re, sys
+          fn = sys.argv[1]
+          src = pathlib.Path("modules/servers/pvewhmcs/pvewhmcs.php").read_text()
+          m = re.search(r"function pvewhmcs_" + re.escape(fn) + r"_internal\(\$params\) \{(.*?)(?=\nfunction |\Z)", src, re.S)
+          if not m:
+              raise SystemExit(f"missing internal action {fn}")
+          body = m.group(1)
+          auth = body.find("pvewhmcs_authorize_service_action($params)")
+          pve = body.find("new PVE2_API")
+          if auth < 0 or pve < 0 or auth > pve:
+              raise SystemExit(f"{fn} does not authorize ownership before PVE connection")
+          PY
+          done
+
+      - name: Behaviorally verify service ownership guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          php <<'PHP'
+          <?php
+          namespace Illuminate\Database\Capsule {
+              class Manager {
+                  public static $service;
+                  public static $guest;
+
+                  public static function table($name) {
+                      return new \OwnershipFakeQuery($name);
+                  }
+              }
+          }
+
+          namespace {
+              class OwnershipFakeQuery {
+                  private $table;
+                  private $wheres = array();
+
+                  public function __construct($table) {
+                      $this->table = $table;
+                  }
+
+                  public function where($field, $operator = null, $value = null) {
+                      if ($value === null) {
+                          $value = $operator;
+                      }
+                      $this->wheres[$field] = $value;
+                      return $this;
+                  }
+
+                  public function first() {
+                      if ($this->table === 'tblhosting') {
+                          $row = \Illuminate\Database\Capsule\Manager::$service;
+                          if (!$row) return null;
+                          if (isset($this->wheres['id']) && (int) $this->wheres['id'] !== (int) $row->id) return null;
+                          if (isset($this->wheres['userid']) && (int) $this->wheres['userid'] !== (int) $row->userid) return null;
+                          return $row;
+                      }
+
+                      if ($this->table === 'mod_pvewhmcs_vms') {
+                          $row = \Illuminate\Database\Capsule\Manager::$guest;
+                          if (!$row) return null;
+                          if (isset($this->wheres['id']) && (int) $this->wheres['id'] !== (int) $row->id) return null;
+                          if (isset($this->wheres['user_id']) && (int) $this->wheres['user_id'] !== (int) $row->user_id) return null;
+                          return $row;
+                      }
+
+                      return null;
+                  }
+              }
+
+              chdir('modules/servers/pvewhmcs');
+              define('ROOTDIR', realpath('../../..'));
+              require 'pvewhmcs.php';
+
+              \Illuminate\Database\Capsule\Manager::$service = (object) array(
+                  'id' => 55,
+                  'userid' => 77,
+                  'server' => 1,
+                  'domainstatus' => 'Active',
+              );
+              \Illuminate\Database\Capsule\Manager::$guest = (object) array(
+                  'id' => 55,
+                  'user_id' => 77,
+                  'vmid' => 501,
+                  'vtype' => 'qemu',
+              );
+
+              $ok = pvewhmcs_authorize_service_action(array(
+                  'serviceid' => 55,
+                  'userid' => 77,
+              ));
+              if ((int) $ok['serviceid'] !== 55 || (int) $ok['userid'] !== 77) {
+                  throw new RuntimeException('Valid ownership context was rejected.');
+              }
+
+              $failed = false;
+              try {
+                  pvewhmcs_authorize_service_action(array(
+                      'serviceid' => 55,
+                      'userid' => 999,
+                  ));
+              } catch (RuntimeException $e) {
+                  $failed = true;
+              }
+
+              if (!$failed) {
+                  throw new RuntimeException('Cross-user service action was accepted.');
+              }
+
+              \Illuminate\Database\Capsule\Manager::$guest = (object) array(
+                  'id' => 55,
+                  'user_id' => 999,
+                  'vmid' => 501,
+                  'vtype' => 'qemu',
+              );
+              $failed = false;
+              try {
+                  pvewhmcs_authorize_service_action(array(
+                      'serviceid' => 55,
+                      'userid' => 77,
+                  ));
+              } catch (RuntimeException $e) {
+                  $failed = true;
+              }
+
+              if (!$failed) {
+                  throw new RuntimeException('Mismatched WHMCS/PVE guest ownership mapping was accepted.');
+              }
+          }
+          PHP
+
       - name: Execute ZRLE oversized-run regression
         shell: bash
         run: |
