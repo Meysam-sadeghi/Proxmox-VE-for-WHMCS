@@ -424,6 +424,7 @@ Key invariants that future changes must preserve:
 13. **Legacy custom crypto must stay removed.** CI rejects the removed password helper and SHA1/MD5/custom-PRNG credential patterns in first-party PHP.
 14. **Remote update checks remain bounded and format-validated.**
 15. **Security regression CI** must remain green for every module change.
+16. **Client power actions are explicit POST + WHMCS CSRF.** Start/Reboot/Power Off/Hard Stop in the customer panel use dedicated client-only functions and must call `check_token()` before reaching PVE.
 16. **Admin plan input is validated before persistence.** Preserve enum allowlists, numeric bounds, identifier patterns, VLAN limits and boolean normalization; never write raw plan `$_POST` values directly to the database/PVE flow.
 17. **Provisioning allocation is serialized at critical boundaries.** Keep per-service and per-pool locks plus the short VMID allocation lock; do not separate VMID selection from PVE create/clone submission.
 18. **Client-visible errors are generic.** Keep VMID/node/API/exception diagnostics server-side through redacted logging; never render raw PVE failures to customers.
@@ -470,8 +471,8 @@ When this repository changes:
 1. Read this file and `SECURITY_AUDIT.md` first.
 2. Get the current HEAD SHA.
 3. The original full-repository audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`.
-4. The current security-hardened source baseline is `336a81e477a22ee81514635e8f51069fe78eea93` (SEC-001 through SEC-021).
-5. If current HEAD is newer, compare it against `336a81e477a22ee81514635e8f51069fe78eea93`; inspect changed source files plus their direct callers. Do not re-read the entire repository unless the diff changes architecture/trust boundaries or the task explicitly requires a new full audit.
+4. The current security-hardened source baseline is `412821098cccd89d8d25222b1c61d6566b7fe640` (SEC-001 through SEC-023).
+5. If current HEAD is newer, compare it against `412821098cccd89d8d25222b1c61d6566b7fe640`; inspect changed source files plus their direct callers. Do not re-read the entire repository unless the diff changes architecture/trust boundaries or the task explicitly requires a new full audit.
 6. Re-evaluate trust boundaries for any new endpoint, hook, API call, database table, secret, or client-visible value.
 7. If noVNC version changes, compare the vendor tree against the exact upstream release while preserving or replacing the local SEC-011 ZRLE guard with an equivalent upstream fix.
 8. Keep PHP Syntax Check and Security Regression Checks green.
