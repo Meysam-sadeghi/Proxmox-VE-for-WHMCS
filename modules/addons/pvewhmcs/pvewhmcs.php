@@ -215,10 +215,26 @@ function get_pvewhmcs_latest_version(){
 	$ch = curl_init();
 	curl_setopt($ch, CURLOPT_URL, "https://raw.githubusercontent.com/The-Network-Crew/Proxmox-VE-for-WHMCS/master/version");
 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	$result = curl_exec($ch);
-	curl_close ($ch);
+	curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+	curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+	curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+	curl_setopt($ch, CURLOPT_FAILONERROR, true);
+	curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
 
-	return str_replace("\n", "", $result);
+	$result = curl_exec($ch);
+	$httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+	curl_close($ch);
+
+	if ($result === false || $httpCode !== 200) {
+		return pvewhmcs_version();
+	}
+
+	$result = trim((string) $result);
+	if (!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9._-]+)?$/', $result)) {
+		return pvewhmcs_version();
+	}
+
+	return $result;
 }
 
 /**
