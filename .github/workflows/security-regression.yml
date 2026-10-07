@@ -250,6 +250,16 @@ jobs:
           ! grep -Fq "echo '<td>' . \$pool->gateway" modules/addons/pvewhmcs/pvewhmcs.php
           ! grep -Fq "value=\"' . \$config->vnc_secret" modules/addons/pvewhmcs/pvewhmcs.php
 
+      - name: Keep legacy custom cryptography removed
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RIn --include='*.php' 'pvewhmcs_get_whmcs_server_password'             modules/addons/pvewhmcs modules/servers/pvewhmcs
+          ! grep -RInE --include='*.php' '\b(md5|sha1)\s*\('             modules/addons/pvewhmcs modules/servers/pvewhmcs
+          ! grep -RInE --include='*.php' '\b(srand|mt_srand)\s*\('             modules/addons/pvewhmcs modules/servers/pvewhmcs
+          ! grep -RIn --include='*.php' 'serialize($GLOBALS)'             modules/addons/pvewhmcs modules/servers/pvewhmcs
+          grep -RIn --include='*.php' "localAPI('DecryptPassword'"             modules/addons/pvewhmcs modules/servers/pvewhmcs >/dev/null
+
       - name: Keep VNC secret encrypted and masked
         shell: bash
         run: |

@@ -420,7 +420,7 @@ Key invariants that future changes must preserve:
 10. **CIDR import is bounded to 4096 addresses and fails closed before subnet iteration.** A second row-count guard and bounded DB batches protect against helper regressions.
 11. **noVNC ZRLE guard is a deliberate local vendor patch** until an upstream release includes equivalent protection; CI behaviorally verifies oversized runs are rejected before any pixel-write loop starts.
 12. **Browser cannot choose the noVNC destination.** The only accepted console query input is an opaque session nonce; host/port/path/node/VMID/tickets remain server-side and CSP `connect-src` is CI-pinned to the resolved PVE WSS origin.
-13. **Legacy custom crypto must stay removed.**
+13. **Legacy custom crypto must stay removed.** CI rejects the removed password helper and SHA1/MD5/custom-PRNG credential patterns in first-party PHP.
 14. **Remote update checks remain bounded and format-validated.**
 15. **Security regression CI** must remain green for every module change.
 

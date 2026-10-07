@@ -683,7 +683,8 @@ No call sites remain; provisioning/client operations still retrieve credentials 
 ### Remediation applied
 
 - Removed the entire legacy SHA1/MD5/XOR encryption class and `pvewhmcs_get_whmcs_server_password()`.
-- Active code uses the supported WHMCS `DecryptPassword` Local API only.
+- Active credential retrieval uses the supported WHMCS `DecryptPassword` Local API.
+- Security CI now rejects reintroduction of the removed helper, first-party `md5()`/`sha1()` credential-style hashing, legacy PRNG seeding, and `serialize($GLOBALS)` patterns while requiring supported WHMCS password decryption to remain present.
 
 ### Fix commit / verification
 
