@@ -278,6 +278,23 @@ jobs:
           grep -Fq "hash_equals(\$apiHost, \$currentHost)" modules/servers/pvewhmcs/novnc_router.php
           grep -Fq "while (count(\$_SESSION['pvewhmcs_console']) >= 5)" modules/servers/pvewhmcs/pvewhmcs.php
 
+      - name: Keep PVE console cookie short-lived and cleared after handshake
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -Fq "'expires' => time() + 60" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "'httponly' => true" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "'samesite' => 'Strict'" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "'path' => '/api2/json/'" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "fetch('./novnc_cookie_clear.php'" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "$_SESSION['pvewhmcs_console_clear']" modules/servers/pvewhmcs/novnc_router.php
+          test -f modules/servers/pvewhmcs/novnc_cookie_clear.php
+          grep -Fq "$_SERVER['REQUEST_METHOD'] !== 'POST'" modules/servers/pvewhmcs/novnc_cookie_clear.php
+          grep -Fq "unset($_SESSION['pvewhmcs_console_clear'][$nonce])" modules/servers/pvewhmcs/novnc_cookie_clear.php
+          grep -Fq "hash_equals((string) $entry['cookie_domain'], $cookieDomain)" modules/servers/pvewhmcs/novnc_cookie_clear.php
+          grep -Fq "http_response_code(204)" modules/servers/pvewhmcs/novnc_cookie_clear.php
+
       - name: Keep addon deletes POST-only
         shell: bash
         run: |
