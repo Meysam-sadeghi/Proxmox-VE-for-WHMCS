@@ -53,6 +53,45 @@ jobs:
           grep -Fq 'root@pam credentials are prohibited' modules/addons/pvewhmcs/proxmox.php
           grep -Fq 'PVEAPIToken=' modules/addons/pvewhmcs/proxmox.php
 
+      - name: Require API tokens for management authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq '$require_api_token = true' modules/addons/pvewhmcs/proxmox.php
+          php -r '
+            require "modules/addons/pvewhmcs/proxmox.php";
+
+            try {
+                new PVE2_API("localhost", "whmcs@pve", "pve", "test-password", 8006);
+                fwrite(STDERR, "default password authentication was accepted\n");
+                exit(1);
+            } catch (PVE2_Exception $e) {
+                if (strpos($e->getMessage(), "requires a dedicated API token") === false) {
+                    fwrite(STDERR, "unexpected default-auth exception: " . $e->getMessage() . "\n");
+                    exit(1);
+                }
+            }
+
+            $token = new PVE2_API(
+                "localhost",
+                "whmcs@pve!provisioning",
+                "pve",
+                "test-token-secret",
+                8006
+            );
+
+            $console = new PVE2_API(
+                "localhost",
+                "vnc",
+                "pve",
+                "test-console-secret",
+                8006,
+                true,
+                false
+            );
+          '
+
+
       - name: Keep console tickets out of public HTTP links
         shell: bash
         run: |

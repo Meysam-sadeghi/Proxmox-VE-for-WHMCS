@@ -183,7 +183,7 @@ function pvewhmcs_CreateAccount($params) {
 	////////////////////
 	if (!empty($params['customfields']['KVMTemplate'])) {
 		// QEMU TEMPLATE - CREATION LOGIC
-		$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport);
+		$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport, true, true);
 		if ($proxmox->login()) {
 			// Get template node: prefer TPL_Node_QEMU custom field, fallback to first node
 			$nodes = $proxmox->get_node_list();
@@ -479,7 +479,7 @@ function pvewhmcs_CreateAccount($params) {
 		// CREATION: Attempt to Create Guest via PVE2 API //
 		////////////////////////////////////////////////////
 		try {
-			$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport);
+			$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport, true, true);
 
 			if ($proxmox->login()) {
 				// Get template node: prefer TPL_Node_LXC custom field for LXC, fallback to first node
@@ -668,7 +668,7 @@ function pvewhmcs_TestConnection(array $params) {
 		$serverusername = $params["serverusername"];
 		$serverpassword = $params["serverpassword"];
 		$serverport = $params["serverport"];
-		$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport);
+		$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport, true, true);
 
 		// Set success if login succeeded
 		if ($proxmox->login()) {
@@ -701,7 +701,7 @@ function pvewhmcs_SuspendAccount(array $params) {
 	$serverpassword = $params["serverpassword"];
 	$serverport = $params["serverport"];
 	
-	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport);
+	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport, true, true);
 	if ($proxmox->login()) {
 		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
 		if ($guest === null) {
@@ -743,7 +743,7 @@ function pvewhmcs_UnsuspendAccount(array $params) {
 	$serverpassword = $params["serverpassword"];
 	$serverport = $params["serverport"];
 	
-	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport);
+	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport, true, true);
 	if ($proxmox->login()) {
 		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
 		$guest_node = pvewhmcs_find_guest_node($proxmox, $guest, $params['serviceid']);
@@ -793,7 +793,7 @@ function pvewhmcs_TerminateAccount(array $params) {
 	$serverpassword = $params["serverpassword"];
 	$serverport = $params["serverport"];
 
-	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport);
+	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword, $serverport, true, true);
 	if ($proxmox->login()){
 
 		// STEP 1: Look up the guest record for this WHMCS Service ID.
@@ -951,7 +951,7 @@ function pvewhmcs_ClientArea($params) {
 	$serverpassword = localAPI('DecryptPassword', $api_data);
 	$serverport = $pveserver->port;
 
-	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport);
+	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport, true, true);
 	if ($proxmox->login()) {
 		//$proxmox->setCookie();
 		// Where node lives ? 
@@ -1168,7 +1168,7 @@ function pvewhmcs_vmStart($params) {
 	$serverpassword = localAPI('DecryptPassword', $api_data);
 	$serverport = $pveserver->port;
 
-	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport);
+	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport, true, true);
 	if ($proxmox->login()) {
 		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
 		if ($guest === null) {
@@ -1215,7 +1215,7 @@ function pvewhmcs_vmReboot($params) {
 	$serverpassword = localAPI('DecryptPassword', $api_data);
 	$serverport = $pveserver->port;
 
-	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport);
+	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport, true, true);
 	if ($proxmox->login()) {
 		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
 		if ($guest === null) {
@@ -1273,7 +1273,7 @@ function pvewhmcs_vmShutdown($params) {
 	$serverpassword = localAPI('DecryptPassword', $api_data);
 	$serverport = $pveserver->port;
 
-	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport);
+	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport, true, true);
 	if ($proxmox->login()) {
 		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
 		if ($guest === null) {
@@ -1322,7 +1322,7 @@ function pvewhmcs_vmStop($params) {
 	$serverpassword = localAPI('DecryptPassword', $api_data);
 	$serverport = $pveserver->port;
 
-	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport);
+	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport, true, true);
 	if ($proxmox->login()) {
 		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
 		if ($guest === null) {

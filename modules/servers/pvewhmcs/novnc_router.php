@@ -124,7 +124,9 @@ try {
         (string) $server->username,
         'pam',
         (string) $decrypted['password'],
-        $apiPort
+        $apiPort,
+        true,
+        true
     );
 
     if (!$proxmox->login()) {
@@ -164,7 +166,9 @@ try {
         'vnc',
         'pve',
         $vncSecret,
-        $apiPort
+        $apiPort,
+        true,
+        false
     );
 
     if (!$consoleApi->login()) {
