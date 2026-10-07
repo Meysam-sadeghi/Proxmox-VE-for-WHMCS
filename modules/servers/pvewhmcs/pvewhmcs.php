@@ -37,6 +37,23 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 // Prepare to source Guest type
 global $guest;
 
+/**
+ * Build a deliberately small, non-secret context for WHMCS module logging.
+ *
+ * Never pass the raw provisioning $params array to logModuleCall(): it can
+ * contain PVE credentials and customer/root passwords.
+ */
+function pvewhmcs_safe_log_context(array $params) {
+	return array(
+		'serviceid' => isset($params['serviceid']) ? (int) $params['serviceid'] : null,
+		'userid' => isset($params['userid'])
+			? (int) $params['userid']
+			: (isset($params['clientsdetails']['userid']) ? (int) $params['clientsdetails']['userid'] : null),
+		'pid' => isset($params['pid']) ? (int) $params['pid'] : null,
+		'serverid' => isset($params['serverid']) ? (int) $params['serverid'] : null,
+	);
+}
+
 // Fix the Server Test showing "Pvewhmcs" instead of pretty name
 // ref: https://developers.whmcs.com/provisioning-modules/meta-data-params/
 function pvewhmcs_MetaData() {
@@ -103,6 +120,9 @@ function pvewhmcs_ConfigOptions() {
 	return $configarray;
 }
 
+// SECURITY: Module logs must never receive raw $params, passwords, API-token
+// secrets, PVE tickets, CSRF tokens, or VNC tickets.
+//
 // PVE API FUNCTION: Create the Service on the Hypervisor
 function pvewhmcs_CreateAccount($params) {
 	// Make sure "WHMCS Admin > Products/Services > Proxmox-based Service -> Plan + Pool" are set. Else, fail early. (Issue #36)
@@ -178,11 +198,15 @@ function pvewhmcs_CreateAccount($params) {
 					'pvewhmcs',
 					'Node Selection Debug',
 					array(
-						'TPL_Node_QEMU_Input' => $params['customfields']['TPL_Node_QEMU'],
-						'ALL_Custom_Fields' => $params['customfields'],
-						'ALL_Config_Options' => $params['configoptions'],
-						'Available_Nodes' => $nodes,
-						'Selected_Template_Node' => $template_node
+						'serviceid' => (int) $params['serviceid'],
+						'template_vmid' => isset($params['customfields']['KVMTemplate'])
+							? (int) $params['customfields']['KVMTemplate']
+							: null,
+						'tpl_node_input' => isset($params['customfields']['TPL_Node_QEMU'])
+							? (string) $params['customfields']['TPL_Node_QEMU']
+							: '',
+						'available_nodes' => $nodes,
+						'selected_template_node' => $template_node
 					),
 					'Checking if custom field is empty or fallback triggered'
 				);
@@ -556,8 +580,8 @@ function pvewhmcs_CreateAccount($params) {
 				logModuleCall(
 					'pvewhmcs',
 					__FUNCTION__,
-					$params,
-					$e->getMessage() . $e->getTraceAsString()
+					pvewhmcs_safe_log_context($params),
+					$e->getMessage()
 				);
 			}
 			return $e->getMessage();
@@ -654,9 +678,8 @@ function pvewhmcs_TestConnection(array $params) {
 		logModuleCall(
 			'pvewhmcs',
 			__FUNCTION__,
-			$params,
-			$e->getMessage(),
-			$e->getTraceAsString()
+			pvewhmcs_safe_log_context($params),
+			$e->getMessage()
 		);
 		// Set the error message as a failure
 		$success = false;
@@ -1142,14 +1165,18 @@ function pvewhmcs_ClientArea($params) {
 		$cluster_resources = $proxmox->get('/cluster/resources');
 		$vm_status = null;
 		// DEBUG - Log the /cluster/resources and /config for the VM/CT, if enabled
-		$cluster_encoded = json_encode($cluster_resources);
-		$vmspecs_encoded = json_encode($vm_config);
 		if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
 			logModuleCall(
 				'pvewhmcs',
 				__FUNCTION__,
-				'CLUSTER INFO: ' . $cluster_encoded,
-				'GUEST CONFIG (Service #' . $params['serviceid'] . ' / PVE ID #' . $guest->vmid . ' / Client #' . $params['clientsdetails']['userid'] . '): ' . $vmspecs_encoded
+				array(
+					'serviceid' => (int) $params['serviceid'],
+					'vmid' => (int) $guest->vmid,
+					'vtype' => (string) $guest->vtype,
+					'node' => (string) $guest_node,
+					'cluster_resource_count' => is_array($cluster_resources) ? count($cluster_resources) : 0,
+				),
+				'Client-area guest data loaded successfully'
 			);
 		}
 
