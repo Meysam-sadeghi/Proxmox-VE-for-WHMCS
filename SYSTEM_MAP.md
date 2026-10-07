@@ -426,6 +426,7 @@ Key invariants that future changes must preserve:
 15. **Security regression CI** must remain green for every module change.
 16. **Admin plan input is validated before persistence.** Preserve enum allowlists, numeric bounds, identifier patterns, VLAN limits and boolean normalization; never write raw plan `$_POST` values directly to the database/PVE flow.
 17. **Provisioning allocation is serialized at critical boundaries.** Keep per-service and per-pool locks plus the short VMID allocation lock; do not separate VMID selection from PVE create/clone submission.
+18. **Client-visible errors are generic.** Keep VMID/node/API/exception diagnostics server-side through redacted logging; never render raw PVE failures to customers.
 
 
 ### Negative findings from the static review
