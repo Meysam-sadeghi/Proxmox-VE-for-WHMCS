@@ -416,7 +416,7 @@ Key invariants that future changes must preserve:
 6. **PVE console cookie is short-lived and non-scriptable.** Keep `Secure`, `HttpOnly`, `SameSite=Strict`, short expiry and narrow path.
 7. **Addon mutations are POST + WHMCS CSRF token only.** Mutation targets must come from validated POST fields, never query-string IDs; do not add state-changing GET routes.
 8. **Dynamic admin/client output is contextually escaped and CI-guarded.** Bare Smarty interpolation in client templates and direct rendering of historically vulnerable stored admin values must fail security regression checks.
-9. **`vnc_secret` is WHMCS-encrypted and never rendered back to HTML.**
+9. **`vnc_secret` is WHMCS-encrypted, integrity-checked, stored in non-truncating TEXT storage, and never rendered back to HTML.** Legacy plaintext migration is transactional and verified after persistence.
 10. **CIDR import is bounded to 4096 addresses and validated before enumeration.**
 11. **noVNC ZRLE guard is a deliberate local vendor patch** until an upstream release includes equivalent protection.
 12. **Browser cannot choose the noVNC destination.** CSP `connect-src` remains pinned to the resolved PVE WSS origin.
