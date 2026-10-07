@@ -466,8 +466,8 @@ When this repository changes:
 1. Read this file and `SECURITY_AUDIT.md` first.
 2. Get the current HEAD SHA.
 3. The original full-repository audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`.
-4. The current security-hardened source baseline is `ea807a8f873d82bf225f11d0971bef6895be6a9d` (PR #2 plus the fail-closed SEC-001 follow-up in PR #3).
-5. If current HEAD is newer, compare it against `ea807a8f873d82bf225f11d0971bef6895be6a9d`; inspect changed source files plus their direct callers. Do not re-read the entire repository unless the diff changes architecture/trust boundaries or the task explicitly requires a new full audit.
+4. The current security-hardened source baseline is `91b2abb356f53ab8722a82b1580f54534e1da2ee` (SEC-001 through SEC-017).
+5. If current HEAD is newer, compare it against `91b2abb356f53ab8722a82b1580f54534e1da2ee`; inspect changed source files plus their direct callers. Do not re-read the entire repository unless the diff changes architecture/trust boundaries or the task explicitly requires a new full audit.
 6. Re-evaluate trust boundaries for any new endpoint, hook, API call, database table, secret, or client-visible value.
 7. If noVNC version changes, compare the vendor tree against the exact upstream release while preserving or replacing the local SEC-011 ZRLE guard with an equivalent upstream fix.
 8. Keep PHP Syntax Check and Security Regression Checks green.
