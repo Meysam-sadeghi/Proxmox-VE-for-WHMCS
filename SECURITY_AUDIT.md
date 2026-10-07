@@ -406,6 +406,7 @@ An authenticated WHMCS administrator may be induced to trigger a state-changing 
 - All addon POST mutations require WHMCS token validation.
 - Every module POST form emits a WHMCS CSRF token.
 - Destructive operations use an allowlisted POST dispatcher and positive integer target validation.
+- QEMU/LXC plan updates no longer take the mutation target from `$_GET['id']`; edit forms carry a CSRF-protected hidden `plan_id`, which is positively validated before the update function is called.
 
 ### Fix commit / verification
 
