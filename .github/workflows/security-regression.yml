@@ -408,7 +408,7 @@ jobs:
           set -euo pipefail
 
           grep -Fq 'function list_ips($poolId)' modules/addons/pvewhmcs/pvewhmcs.php
-          ! grep -Fq "where('pool_id', '=', $_GET['id'])" modules/addons/pvewhmcs/pvewhmcs.php
+          ! grep -Fq "where('pool_id', '=', \$_GET['id'])" modules/addons/pvewhmcs/pvewhmcs.php
           grep -Fq 'pvewhmcs_e($ipAddress)' modules/addons/pvewhmcs/pvewhmcs.php
           grep -Fq 'pvewhmcs_e($mask)' modules/addons/pvewhmcs/pvewhmcs.php
           grep -Fq 'pvewhmcs_e($serviceLink)' modules/addons/pvewhmcs/pvewhmcs.php
