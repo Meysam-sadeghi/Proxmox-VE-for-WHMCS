@@ -994,6 +994,55 @@ If a routing/context weakness elsewhere ever supplied another service ID to this
 
 ---
 
+## SEC-021 — No CI guard against reintroducing backdoor-style primitives or obvious committed secrets
+
+**Severity:** MEDIUM (supply-chain / regression hardening)  
+**Status:** FIXED - NEEDS VERIFICATION  
+**Category:** secure development lifecycle / defense in depth  
+**Primary file:** `.github/workflows/security-regression.yml`
+
+### Evidence
+
+The original audit found no first-party shell execution, eval-style execution, unsafe deserialization or obvious embedded credentials, but that negative finding was only a point-in-time review. A later code change could reintroduce one of these high-risk primitives without an automated gate.
+
+### Security impact
+
+Unexpected command-execution/deserialization primitives materially increase the blast radius of any future input-validation flaw and are common building blocks for web shells/backdoors. Accidentally committed production credentials create an immediate external compromise path.
+
+### Remediation applied
+
+- Security CI scans first-party PHP (excluding vendored noVNC) and fails on direct use of:
+  - `exec`
+  - `shell_exec`
+  - `system`
+  - `passthru`
+  - `proc_open`
+  - `popen`
+  - `eval`
+  - `assert`
+  - `unserialize`
+  - `base64_decode`
+- Security CI scans first-party PHP/TPL/JS/JSON for several high-confidence secret formats including private keys, AWS access keys, GitHub PAT/token forms, Slack tokens and Stripe live secret keys.
+- The scan intentionally excludes the vendored noVNC tree to avoid treating third-party source internals as first-party application policy.
+
+### Acceptance criteria
+
+- Current repository passes both checks.
+- Adding any banned PHP primitive to first-party code causes CI to fail.
+- Adding a test private-key header or supported token pattern to first-party code causes CI to fail.
+- No current production secret is present in the repository.
+
+### Limitations
+
+This is a high-confidence regression gate, not a substitute for GitHub secret scanning or a dedicated secret-scanning engine. Unknown/custom secret formats still require normal review and operational credential hygiene.
+
+### Fix commit / verification
+
+- Commit: pending merge
+- Verification: require Security Regression Checks and PHP Syntax Check to pass on the PR before merge.
+
+---
+
 # Additional hardening observations
 
 These are not currently ranked above the primary findings but should be considered during refactoring:
