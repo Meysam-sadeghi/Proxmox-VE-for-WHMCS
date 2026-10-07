@@ -540,10 +540,59 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq 'if ($prefix < 20)' modules/addons/pvewhmcs/pvewhmcs.php
-          grep -Fq '1 << (32 - $prefix)' modules/addons/pvewhmcs/pvewhmcs.php
+
+          grep -Fq 'pvewhmcs_bounded_ipv4_cidr_size($prefix, 4096)' modules/addons/pvewhmcs/pvewhmcs.php
+          grep -Fq 'if ($hostBits > 12)' modules/addons/pvewhmcs/security.php
           grep -Fq 'count($rows) > 4096' modules/addons/pvewhmcs/pvewhmcs.php
           grep -Fq 'array_chunk($rows, 250)' modules/addons/pvewhmcs/pvewhmcs.php
+
+          php -r '
+            require "modules/addons/pvewhmcs/security.php";
+            require "modules/addons/pvewhmcs/Ipv4/Subnet.php";
+
+            $expected = array(
+                20 => 4096,
+                21 => 2048,
+                31 => 2,
+                32 => 1,
+            );
+
+            foreach ($expected as $prefix => $count) {
+                $actual = pvewhmcs_bounded_ipv4_cidr_size($prefix, 4096);
+                if ($actual !== $count) {
+                    fwrite(STDERR, "unexpected size for /" . $prefix . ": " . $actual . "\n");
+                    exit(1);
+                }
+            }
+
+            foreach (array(-1, 0, 19, 33) as $prefix) {
+                $rejected = false;
+                try {
+                    pvewhmcs_bounded_ipv4_cidr_size($prefix, 4096);
+                } catch (InvalidArgumentException $e) {
+                    $rejected = true;
+                }
+                if (!$rejected) {
+                    fwrite(STDERR, "unsafe/invalid prefix accepted: /" . $prefix . "\n");
+                    exit(1);
+                }
+            }
+
+            $subnet = Ipv4_Subnet::fromString("10.20.0.0/20");
+            $iterated = 0;
+            foreach ($subnet->getIterator() as $ip) {
+                $iterated++;
+                if ($iterated > 4096) {
+                    fwrite(STDERR, "subnet iterator exceeded /20 safety bound\n");
+                    exit(1);
+                }
+            }
+
+            if ($iterated < 1 || $iterated > 4096) {
+                fwrite(STDERR, "unexpected /20 iterator cardinality: " . $iterated . "\n");
+                exit(1);
+            }
+          '
 
       - name: Keep ZRLE CPU bound guard
         shell: bash

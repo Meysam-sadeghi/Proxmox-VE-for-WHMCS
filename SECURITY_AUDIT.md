@@ -547,6 +547,8 @@ Allowed ranges complete within bounded time/query count.
 - Uses bounded integer address-count calculation and a second post-iterator guard so the generated row set can never exceed 4096 entries.
 - Skips pool gateways and existing addresses.
 - Performs bounded 250-row batch inserts inside a transaction.
+- CIDR size validation is centralized in pure helper `pvewhmcs_bounded_ipv4_cidr_size()`, which rejects host-bit counts above 12 **before any shift or subnet iterator construction**.
+- Security Regression CI behaviorally verifies safe cardinalities for /20, /21, /31 and /32; rejects /0, /19, negative and >32 prefixes; and runs the real /20 iterator with a hard 4096-iteration ceiling.
 - Security CI asserts all import bounds remain present.
 
 ### Fix commit / verification

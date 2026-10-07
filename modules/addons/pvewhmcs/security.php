@@ -338,6 +338,46 @@ function pvewhmcs_has_vnc_secret()
 }
 
 /**
+ * Return the address count for an IPv4 CIDR only when it is within the
+ * configured safe import limit.
+ *
+ * The host-bit limit is checked before any bit shift, preventing oversized
+ * prefixes such as /0 from reaching allocation/iterator code.
+ */
+function pvewhmcs_bounded_ipv4_cidr_size($prefix, $maxAddresses = 4096)
+{
+    if (is_string($prefix) && ctype_digit($prefix)) {
+        $prefix = (int) $prefix;
+    }
+
+    if (!is_int($prefix) || $prefix < 0 || $prefix > 32) {
+        throw new InvalidArgumentException('Invalid IPv4 CIDR prefix.');
+    }
+
+    $maxAddresses = (int) $maxAddresses;
+    if ($maxAddresses < 1 || $maxAddresses > 4096) {
+        throw new InvalidArgumentException('Invalid IPv4 import limit.');
+    }
+
+    $hostBits = 32 - $prefix;
+
+    // 2^12 = 4096. Reject before shifting or constructing a subnet.
+    if ($hostBits > 12) {
+        throw new InvalidArgumentException(
+            'IPv4 import is limited to 4096 addresses. Use /20 or a smaller range.'
+        );
+    }
+
+    $addressCount = 1 << $hostBits;
+
+    if ($addressCount < 1 || $addressCount > $maxAddresses) {
+        throw new InvalidArgumentException('IPv4 CIDR size is outside the safe import limit.');
+    }
+
+    return $addressCount;
+}
+
+/**
  * Compute the narrowest common DNS suffix that both the WHMCS host and PVE
  * host are allowed to share for the short-lived PVEAuthCookie.
  *
