@@ -188,11 +188,12 @@ Once you have it configured, clicking noVNC in Client Area provides direct link 
 
 1. WHMCS and PVE must both use HTTPS with valid certificates.
 2. Configure the PVE server in WHMCS using its certificate-valid DNS hostname; direct IP API connections are not suitable for the secure console.
-3. WHMCS and the PVE hostname must be under a common registrable domain so the short-lived, `HttpOnly`, `Secure`, path-scoped PVE console cookie can reach the PVE WebSocket endpoint.
-4. Configure the restricted `vnc@pve` secret in Module Settings. The module encrypts it with WHMCS and never displays the stored value again.
-5. The console bootstrap nonce expires in about one minute, is single-use, and is submitted only by POST; opening an expired console requires launching it again from the service page.
-6. The router renders noVNC directly after a second service/guest/server revalidation; there is no second client bootstrap endpoint or query-string nonce.
-7. The WebSocket destination is derived server-side from the WHMCS service's assigned Proxmox server and cannot be overridden by client input.
+3. WHMCS and the PVE hostname must be under a common registrable domain so the handshake-only `HttpOnly`, `Secure`, `SameSite=Strict`, `/api2/json/`-scoped PVE console cookie can reach the PVE WebSocket endpoint. Its fallback lifetime is only 60 seconds.
+4. After the WebSocket successfully connects, the module immediately expires that PVE cookie through a one-time same-origin cleanup request; the 60-second TTL is only a fallback.
+5. Configure the restricted `vnc@pve` secret in Module Settings. The module encrypts it with WHMCS and never displays the stored value again.
+6. The console bootstrap nonce expires in about one minute, is single-use, and is submitted only by POST; opening an expired console requires launching it again from the service page.
+7. The router renders noVNC directly after a second service/guest/server revalidation; there is no second client bootstrap endpoint or query-string nonce.
+8. The WebSocket destination is derived server-side from the WHMCS service's assigned Proxmox server and cannot be overridden by client input.
 
 <img alt="Admin GUI of the Module Config (VNC Secret, Start VMID, Debug Log y/n)" src="_images/zConfiguration.png">
 
