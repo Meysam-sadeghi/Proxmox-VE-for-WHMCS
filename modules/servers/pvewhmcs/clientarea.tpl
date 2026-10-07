@@ -4,6 +4,16 @@
 .pve-client-area {
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
+.pve-power-actions {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+	margin-bottom: 16px;
+}
+.pve-power-actions form {
+	display: inline-block;
+	margin: 0;
+}
 .pve-header-panel {
 	background: #fafafa;
 	border: 1px solid #e0e0e0;
@@ -287,6 +297,41 @@
 </div>
 {else}
 <div class="pve-client-area">
+	{* State-changing power actions: explicit POST + WHMCS CSRF token. *}
+	<div class="pve-power-actions">
+		<form method="post" action="clientarea.php?action=productdetails">
+			<input type="hidden" name="token" value="{$token|escape:'html':'UTF-8'}">
+			<input type="hidden" name="id" value="{$serviceid|escape:'html':'UTF-8'}">
+			<input type="hidden" name="modop" value="custom">
+			<input type="hidden" name="a" value="clientVmStart">
+			<button type="submit" class="btn btn-success"><i class="fa fa-play"></i> Start</button>
+		</form>
+
+		<form method="post" action="clientarea.php?action=productdetails">
+			<input type="hidden" name="token" value="{$token|escape:'html':'UTF-8'}">
+			<input type="hidden" name="id" value="{$serviceid|escape:'html':'UTF-8'}">
+			<input type="hidden" name="modop" value="custom">
+			<input type="hidden" name="a" value="clientVmReboot">
+			<button type="submit" class="btn btn-warning"><i class="fa fa-refresh"></i> Reboot</button>
+		</form>
+
+		<form method="post" action="clientarea.php?action=productdetails">
+			<input type="hidden" name="token" value="{$token|escape:'html':'UTF-8'}">
+			<input type="hidden" name="id" value="{$serviceid|escape:'html':'UTF-8'}">
+			<input type="hidden" name="modop" value="custom">
+			<input type="hidden" name="a" value="clientVmShutdown">
+			<button type="submit" class="btn btn-default"><i class="fa fa-power-off"></i> Power Off</button>
+		</form>
+
+		<form method="post" action="clientarea.php?action=productdetails">
+			<input type="hidden" name="token" value="{$token|escape:'html':'UTF-8'}">
+			<input type="hidden" name="id" value="{$serviceid|escape:'html':'UTF-8'}">
+			<input type="hidden" name="modop" value="custom">
+			<input type="hidden" name="a" value="clientVmStop">
+			<button type="submit" class="btn btn-danger"><i class="fa fa-stop"></i> Hard Stop</button>
+		</form>
+	</div>
+
 	{* Header Panel with VM Type, Status, and Gauges *}
 	<div class="pve-header-panel">
 		<div class="pve-status-section">
