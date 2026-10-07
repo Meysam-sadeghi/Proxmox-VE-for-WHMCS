@@ -157,6 +157,20 @@ jobs:
           grep -Fq "while (count(\$_SESSION['pvewhmcs_console_runtime']) >= 5)" modules/servers/pvewhmcs/novnc_router.php
           grep -Fq "Referrer-Policy: no-referrer" modules/servers/pvewhmcs/novnc_router.php
 
+      - name: Keep noVNC destination server-side and CSP-pinned
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(grep -Fc "$_GET[" modules/servers/pvewhmcs/novnc_router.php)" -eq 1
+          test "$(grep -Fc "$_GET[" modules/servers/pvewhmcs/novnc_client.php)" -eq 1
+          grep -Fq "$_GET['session']" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "$_GET['session']" modules/servers/pvewhmcs/novnc_client.php
+          grep -Fq "FILTER_VALIDATE_DOMAIN" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "Console server assignment changed" modules/servers/pvewhmcs/novnc_client.php
+          grep -Fq "$cspConnect = 'wss://' . $host . ':' . $port;" modules/servers/pvewhmcs/novnc_client.php
+          grep -Fq '"connect-src " . $cspConnect . ";"' modules/servers/pvewhmcs/novnc_client.php
+          ! grep -InE '\$_(GET|POST|REQUEST)\[["'"'](host|port|path|node|vmid|vncticket|pveticket)["'"']\]'             modules/servers/pvewhmcs/novnc_router.php             modules/servers/pvewhmcs/novnc_client.php
+
       - name: Keep addon deletes POST-only
         shell: bash
         run: |
