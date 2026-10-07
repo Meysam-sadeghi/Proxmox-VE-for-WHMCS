@@ -447,8 +447,9 @@ Test payloads containing HTML/quotes/script-like text render as inert text in bo
 - Added centralized `pvewhmcs_e()` HTML escaping in the admin addon.
 - Plan/pool stored values and editable HTML attributes are contextually escaped.
 - Admin exception text is escaped before rendering.
-- Client Smarty output now explicitly escapes guest/PVE-derived text, attributes, NIC values, SSH keys and statistics attributes.
-- Reinstall template already used explicit escaping.
+- Client Smarty output explicitly escapes guest/PVE-derived text, attributes, NIC values, SSH keys and statistics attributes.
+- Reinstall template uses explicit escaping.
+- Security regression CI now rejects bare Smarty interpolation in the client templates and guards the historically vulnerable stored admin fields from being reintroduced without escaping.
 
 ### Fix commit / verification
 
