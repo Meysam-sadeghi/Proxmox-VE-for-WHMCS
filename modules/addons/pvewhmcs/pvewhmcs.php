@@ -1220,7 +1220,19 @@ function save_config() {
 			function ($connectionManager) use ($updates)
 			{
 				/** @var \Illuminate\Database\Connection $connectionManager */
-				$connectionManager->table('mod_pvewhmcs')->update($updates);
+				$connectionManager->table('mod_pvewhmcs')
+					->where('id', '=', 1)
+					->update($updates);
+
+				if (isset($updates['vnc_secret'])) {
+					$persisted = (string) $connectionManager->table('mod_pvewhmcs')
+						->where('id', '=', 1)
+						->value('vnc_secret');
+
+					if (!hash_equals((string) $updates['vnc_secret'], $persisted)) {
+						throw new RuntimeException('Encrypted VNC secret failed persistence integrity verification.');
+					}
+				}
 			}
 		);
 		$_SESSION['pvewhmcs']['infomsg']['title']='Module Config saved.' ;
