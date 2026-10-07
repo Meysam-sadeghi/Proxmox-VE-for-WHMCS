@@ -348,6 +348,8 @@ This section is intentionally concise; it is an engineering map, not an exploit 
 9. **IPv4 range expansion:** `add_ip_2_pool()` enumerates every host from the submitted CIDR with no upper bound. Large ranges can exhaust CPU/time/database resources.
 10. **Legacy crypto:** old SHA1/MD5/XOR-style helper code remains in the provisioning file. It appears dormant in the current active flow and should be removed rather than reused.
 11. **Ticket-age check:** the PVE API client's local ticket-age comparison is logically reversed; fix for correctness even though normal module requests create short-lived objects.
+12. **Bundled noVNC ZRLE decoder:** noVNC upstream issue #2072 reports an unbounded plain-RLE run length causing client-side CPU exhaustion. The bundled v1.7.0 `core/decoders/zrle.js` was checked and contains the reported missing bound; treat this as an applicable availability bug until upstream/fork is patched.
+13. **noVNC destination parameters:** upstream issue #2051 tracks untrusted URL-controlled WebSocket destinations. This module's router also accepts host/port/path inputs and forwards them into noVNC, so destination allowlisting and CSP should be part of the console redesign.
 
 ### Negative findings from the static review
 
