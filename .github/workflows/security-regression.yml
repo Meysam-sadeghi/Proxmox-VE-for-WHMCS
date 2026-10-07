@@ -894,6 +894,35 @@ jobs:
           }
           PHP
 
+      - name: Keep Client Area backend errors inside generic error boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import pathlib, re
+
+          src = pathlib.Path("modules/servers/pvewhmcs/pvewhmcs.php").read_text()
+          match = re.search(
+              r"function pvewhmcs_ClientArea\(\$params\) \{(.*?)(?=\n// OUTPUT: VM Statistics)",
+              src,
+              re.S,
+          )
+          if not match:
+              raise SystemExit("ClientArea function not found")
+
+          body = match.group(1)
+          if re.search(r"\becho\b|\bexit\s*;", body):
+              raise SystemExit("ClientArea contains direct echo/exit error output")
+
+          if body.count("pvewhmcs_clientarea_error_response(") < 2:
+              raise SystemExit("ClientArea does not route authorization and backend failures through the generic response")
+
+          pve_pos = body.find("new PVE2_API")
+          catch_pos = body.rfind("catch (\\Throwable $e)")
+          if pve_pos < 0 or catch_pos < pve_pos:
+              raise SystemExit("PVE-backed ClientArea code is not covered by a Throwable error boundary")
+          PY
+
       - name: Enforce power-action ownership validation
         shell: bash
         run: |
