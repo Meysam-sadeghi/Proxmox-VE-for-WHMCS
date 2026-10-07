@@ -96,23 +96,31 @@ class PVE2_API {
 		curl_setopt($prox_ch, CURLOPT_RETURNTRANSFER, true);
 		curl_setopt($prox_ch, CURLOPT_POSTFIELDS, $login_postfields_string);
 		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYPEER, $this->verify_ssl);
-		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYHOST, $this->verify_ssl);
+		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYHOST, $this->verify_ssl ? 2 : 0);
+		curl_setopt($prox_ch, CURLOPT_CONNECTTIMEOUT, 15);
+		curl_setopt($prox_ch, CURLOPT_TIMEOUT, 60);
 
 		$login_ticket = curl_exec($prox_ch);
+		$login_error = curl_error($prox_ch);
 		$login_request_info = curl_getinfo($prox_ch);
+		$login_http_code = isset($login_request_info['http_code'])
+			? (int) $login_request_info['http_code']
+			: 0;
 
 		curl_close($prox_ch);
 		unset($prox_ch);
 		unset($login_postfields_string);
 
-		if (!$login_ticket) {
-			// SSL negotiation failed or connection timed out
+		if ($login_ticket === false || $login_http_code < 200 || $login_http_code >= 300) {
 			$this->login_ticket_timestamp = null;
+			if ($login_error !== '') {
+				error_log('PVE2 API login transport error: ' . $login_error);
+			}
 			return false;
 		}
 
 		$login_ticket_data = json_decode($login_ticket, true);
-		if ($login_ticket_data == null || $login_ticket_data['data'] == null) {
+		if (!is_array($login_ticket_data) || !isset($login_ticket_data['data']) || $login_ticket_data['data'] == null) {
 			// Login failed.
 			// Just to be safe, set this to null again.
 			$this->login_ticket_timestamp = null;
@@ -163,14 +171,17 @@ class PVE2_API {
 			$this->login_ticket_timestamp = null;
 			return false;
 		}
-		if ($this->login_ticket_timestamp >= (time() + 7200)) {
-			// Reset login ticket object values.
+		if (
+			$this->login_ticket_timestamp === null
+			|| time() >= ($this->login_ticket_timestamp + 7200)
+		) {
+			// Reset login ticket object values once the two-hour ticket age is reached.
 			$this->login_ticket = null;
 			$this->login_ticket_timestamp = null;
 			return false;
-		} else {
-			return true;
 		}
+
+		return true;
 	}
 
 	/*
@@ -243,8 +254,8 @@ class PVE2_API {
 		curl_setopt($prox_ch, CURLOPT_HEADER, true);
 		curl_setopt($prox_ch, CURLOPT_RETURNTRANSFER, true);
 		curl_setopt($prox_ch, CURLOPT_COOKIE, "PVEAuthCookie=" . $this->login_ticket['ticket']);
-		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYPEER, false);
-		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYHOST, false);
+		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYPEER, $this->verify_ssl);
+		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYHOST, $this->verify_ssl ? 2 : 0);
 		curl_setopt($prox_ch, CURLOPT_CONNECTTIMEOUT, 15);
 		curl_setopt($prox_ch, CURLOPT_TIMEOUT, 120);
 
