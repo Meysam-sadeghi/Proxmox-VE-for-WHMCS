@@ -1080,17 +1080,77 @@ function pvewhmcs_AdminCustomButtonArray() {
 
 // MODULE BUTTONS: Client Interface button regos
 function pvewhmcs_ClientAreaCustomButtonArray() {
+	// Destructive/state-changing power actions are rendered by clientarea.tpl
+	// as explicit POST forms carrying the WHMCS CSRF token. Keep only
+	// read-only / nonce-protected / independently-CSRF-protected actions here.
 	$buttonarray = array(
-		"<i class='fa fa-2x fa-flag-checkered'></i> Start" => "vmStart",
-		"<i class='fa fa-2x fa-sync'></i> Reboot" => "vmReboot",
-		"<i class='fa fa-2x fa-power-off'></i> Power Off" => "vmShutdown",
-		"<i class='fa fa-2x fa-stop'></i>  Hard Stop" => "vmStop",
 		"<i class='fa fa-2x fa-chart-bar'></i>  Statistics" => "vmStat",
 		"<i class='fa fa-2x fa-search'></i>  Check Status" => "vmCheck",
 		"<img src='./modules/servers/pvewhmcs/img/novnc.png'/> noVNC (HTML5)" => "noVNC",
 		"<i class='fa fa-refresh'></i> Reinstall OS" => "Reinstall",
 	);
 	return $buttonarray;
+}
+
+function pvewhmcs_ClientAreaAllowedFunctions() {
+	return array(
+		'clientVmStart',
+		'clientVmReboot',
+		'clientVmShutdown',
+		'clientVmStop',
+	);
+}
+
+/**
+ * Require an explicit client-area POST and WHMCS CSRF token before a
+ * state-changing custom power function is allowed to reach PVE.
+ */
+function pvewhmcs_require_client_power_csrf() {
+	if (!isset($_SERVER['REQUEST_METHOD']) || strtoupper((string) $_SERVER['REQUEST_METHOD']) !== 'POST') {
+		throw new RuntimeException('Client power actions require POST.');
+	}
+
+	if (!function_exists('check_token')) {
+		throw new RuntimeException('WHMCS CSRF validator is unavailable.');
+	}
+
+	check_token();
+}
+
+function pvewhmcs_clientVmStart($params) {
+	try {
+		pvewhmcs_require_client_power_csrf();
+		return pvewhmcs_vmStart_internal($params);
+	} catch (\Throwable $e) {
+		return pvewhmcs_client_safe_error($params, __FUNCTION__, $e->getMessage());
+	}
+}
+
+function pvewhmcs_clientVmReboot($params) {
+	try {
+		pvewhmcs_require_client_power_csrf();
+		return pvewhmcs_vmReboot_internal($params);
+	} catch (\Throwable $e) {
+		return pvewhmcs_client_safe_error($params, __FUNCTION__, $e->getMessage());
+	}
+}
+
+function pvewhmcs_clientVmShutdown($params) {
+	try {
+		pvewhmcs_require_client_power_csrf();
+		return pvewhmcs_vmShutdown_internal($params);
+	} catch (\Throwable $e) {
+		return pvewhmcs_client_safe_error($params, __FUNCTION__, $e->getMessage());
+	}
+}
+
+function pvewhmcs_clientVmStop($params) {
+	try {
+		pvewhmcs_require_client_power_csrf();
+		return pvewhmcs_vmStop_internal($params);
+	} catch (\Throwable $e) {
+		return pvewhmcs_client_safe_error($params, __FUNCTION__, $e->getMessage());
+	}
 }
 
 /**
