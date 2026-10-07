@@ -338,7 +338,9 @@ function pvewhmcs_reinstall_connect(array $params)
         $server->username,
         'pam',
         $decrypted['password'],
-        $server->port
+        $server->port,
+        true,
+        true
     );
 
     if (!$api->login()) {
