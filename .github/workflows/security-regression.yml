@@ -169,6 +169,23 @@ jobs:
           grep -Fq "function update_lxc_plan(\$id)" modules/addons/pvewhmcs/pvewhmcs.php
           test "$(grep -Fc 'name="plan_id"' modules/addons/pvewhmcs/pvewhmcs.php)" -ge 2
 
+      - name: Keep client and stored admin output escaped
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tpl in             modules/servers/pvewhmcs/clientarea.tpl             modules/servers/pvewhmcs/reinstall.tpl
+          do
+            if grep -Pn '\{\$[^}]+\}' "$tpl" | grep -Pv '\|escape' ; then
+              echo "Unescaped Smarty interpolation found in $tpl" >&2
+              exit 1
+            fi
+          done
+
+          ! grep -Fq "echo '<td>' . \$plan->title" modules/addons/pvewhmcs/pvewhmcs.php
+          ! grep -Fq "echo '<td>' . \$pool->title" modules/addons/pvewhmcs/pvewhmcs.php
+          ! grep -Fq "echo '<td>' . \$pool->gateway" modules/addons/pvewhmcs/pvewhmcs.php
+          ! grep -Fq "value=\"' . \$config->vnc_secret" modules/addons/pvewhmcs/pvewhmcs.php
+
       - name: Keep VNC secret encrypted and masked
         shell: bash
         run: |
