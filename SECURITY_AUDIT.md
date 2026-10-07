@@ -3,7 +3,7 @@
 > **Repository:** `Meysam-sadeghi/Proxmox-VE-for-WHMCS`  
 > **Audit date:** 2026-10-07  
 > **Original audit baseline:** `7ff41ccecde7e1d846860e3b24208129ee8fdd42`  
-> **Security-hardened source baseline:** `4c7a330e5eca3dbe12e2cc1bccf4b0276b35e1de`  
+> **Security-hardened source baseline:** `eeeb156e117146d6f51b27f9feacdd3d1dbb71f9`  
 > **Module version:** 1.3.6  
 > **Companion architecture map:** `SYSTEM_MAP.md`
 
@@ -11,7 +11,7 @@
 
 This file is the authoritative security-review handoff for future remediation work.
 
-**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; the hardened baseline now includes SEC-001 through SEC-018, with SEC-018 merged at `4c7a330e5eca3dbe12e2cc1bccf4b0276b35e1de`. For future work, compare the current HEAD against `4c7a330e5eca3dbe12e2cc1bccf4b0276b35e1de` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
+**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; the hardened baseline now includes SEC-001 through SEC-019, with SEC-019 merged at `eeeb156e117146d6f51b27f9feacdd3d1dbb71f9`. For future work, compare the current HEAD against `eeeb156e117146d6f51b27f9feacdd3d1dbb71f9` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
 
 When fixing an item:
 
@@ -906,7 +906,7 @@ Internal VM/node identifiers, backend error text and PVE response details can re
 
 ### Fix commit / verification
 
-- Commit: pending merge of the SEC-019 hardening branch.
+- Commit: `eeeb156e117146d6f51b27f9feacdd3d1dbb71f9`
 - Verification: PHP Syntax Check and Security Regression CI must pass. Staging should exercise failed power actions and a forced Reinstall failure and confirm only generic customer messages are rendered.
 
 ---
