@@ -1066,7 +1066,8 @@ function pvewhmcs_ClientArea($params) {
 	return array(
 		'templatefile' => 'clientarea',
 		'vars' => array(
-			'params' => $params,
+			// Do not expose the full WHMCS provisioning params array to Smarty;
+			// it can contain server credentials and other secrets.
 			'vm_config' => $vm_config,
 			'vm_status' => $vm_status,
 			'vm_statistics' => $vm_statistics,
