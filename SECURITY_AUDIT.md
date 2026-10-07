@@ -262,10 +262,12 @@ Redesign console bootstrap so raw PVE/VNC tickets are not exposed in browser-vis
 
 ### Remediation applied
 
-- The customer-facing console URL now carries only a random one-time session nonce.
+- The customer-facing console URL carries only a random one-time session nonce.
 - PVE authentication ticket, VNC ticket, destination host, port and path are generated/resolved server-side after authorization.
 - Console endpoints send `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
 - A second short-lived one-time nonce transfers authorized runtime state to the minimal noVNC page.
+- Outstanding bootstrap/runtime nonce pools are pruned and capped to prevent client-session storage growth.
+- The final noVNC handoff revalidates Active service ownership, guest VMID/type mapping, and assigned PVE host/port before exposing runtime state.
 
 ### Fix commit / verification
 
