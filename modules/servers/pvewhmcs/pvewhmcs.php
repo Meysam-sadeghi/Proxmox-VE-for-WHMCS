@@ -329,7 +329,7 @@ function pvewhmcs_CreateAccount_locked($params) {
 				return array(
 					'vmid' => $allocatedVmid,
 					'settings' => $settings,
-					'logrequest' => $path . json_encode($settings),
+					'logrequest' => $path . ' vmid=' . (int) $allocatedVmid,
 					'response' => $response,
 				);
 			});
@@ -630,7 +630,7 @@ function pvewhmcs_CreateAccount_locked($params) {
 					return array(
 						'vmid' => $allocatedVmid,
 						'settings' => $settings,
-						'logrequest' => $path . json_encode($settings),
+						'logrequest' => $path . ' vmid=' . (int) $allocatedVmid,
 						'response' => $response,
 					);
 				});
