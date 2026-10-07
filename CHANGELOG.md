@@ -13,6 +13,7 @@ All notable changes to Proxmox VE for WHMCS will be documented in this file.
 - VNC secret storage is WHMCS-encrypted and legacy plaintext migrates securely.
 - IPv4 CIDR import is bounded; noVNC ZRLE oversized runs are rejected.
 - QEMU/LXC plan configuration now uses centralized enum, identifier and numeric range validation before persistence.
+- Concurrent provisioning now serializes per-service, per-IP-pool and VMID allocation critical sections to prevent duplicate reservations.
 
 ### 🗄️ Schema
 - Widen `mod_pvewhmcs_plans.cpuunits` to unsigned INT so the documented range up to 500000 is stored safely.

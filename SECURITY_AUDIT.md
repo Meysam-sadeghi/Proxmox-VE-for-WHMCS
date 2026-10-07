@@ -822,12 +822,60 @@ A compromised/admin-crafted request could persist malformed or extreme configura
 
 ---
 
+## SEC-018 — Concurrent provisioning can race on service, IP and VMID allocation
+
+**Severity:** HIGH / MEDIUM  
+**Status:** FIXED - NEEDS VERIFICATION  
+**Category:** CWE-362 Concurrent Execution using Shared Resource with Improper Synchronization  
+**Primary file:** `modules/servers/pvewhmcs/pvewhmcs.php`
+
+### Evidence
+
+Initial provisioning selected a free IPv4 with a read query and then updated `tblhosting.dedicatedip` in a separate operation. Two simultaneous orders using the same pool could therefore observe the same address before either reservation became visible.
+
+VMID allocation similarly asked PVE for the next ID and then created/cloned the guest later. `/cluster/nextid` is an availability query, not a reservation, so concurrent provisioning requests could race for the same VMID.
+
+The fallback VMID probe also attempted to call `PVE2_API::get()` with a second query-parameter argument, while that method accepts only a request path; the requested `vmid` therefore was not actually sent as intended.
+
+### Security / operational impact
+
+Concurrent orders could collide on IP or VMID allocation, producing failed provisioning, incorrect mappings, duplicate network configuration, or one service interfering with another. Repeated/concurrent `CreateAccount` calls for the same WHMCS service could also initiate duplicate work.
+
+### Remediation applied
+
+- Added a per-service MySQL advisory lock around `CreateAccount`.
+- Repeated CreateAccount calls become idempotent once a module VM mapping already exists.
+- Added a per-IP-pool advisory lock around free-address selection and early `tblhosting.dedicatedip` reservation.
+- Existing valid reservation for the same service is reused on retry rather than silently allocating a new address.
+- Added a short global `vmid_allocator` lock around VMID selection plus the PVE create/clone submission.
+- The VMID lock is released immediately after PVE accepts the operation/returns the task response; long task polling is not serialized.
+- VMID candidates still present in `mod_pvewhmcs_vms` are skipped even when PVE reports them free.
+- Explicit VMID probing now sends `/cluster/nextid?vmid=<id>` in the actual request path.
+- Provisioning debug logging for create/clone records only API path + VMID and does not serialize guest settings/passwords.
+- Security CI verifies advisory-lock release on exceptions, mapped-VMID skipping, explicit PVE VMID probing, and presence of both create/clone allocation guards.
+
+### Acceptance criteria
+
+- Two simultaneous CreateAccount calls for the same service cannot create two guests.
+- Two simultaneous services using one IPv4 pool cannot reserve the same address through this module.
+- Two simultaneous guest creates/clones cannot submit the same VMID through this module.
+- Existing service IP reservation is reused safely on provisioning retry.
+- Advisory locks are released on both success and exceptions.
+- VMID probing sends the requested candidate to PVE rather than silently ignoring it.
+- No guest password or full create settings are introduced into module logs by this change.
+
+### Fix commit / verification
+
+- Commit: pending merge of the SEC-018 hardening branch.
+- Verification: PHP Syntax Check and Security Regression CI must pass. Final verification should additionally run two real concurrent staging orders against WHMCS + Proxmox VE 9 and confirm distinct IPs/VMIDs and correct service mappings.
+
+---
+
 # Additional hardening observations
 
 These are not currently ranked above the primary findings but should be considered during refactoring:
 
 - Avoid passing the entire WHMCS `$params` structure into Smarty/client templates when only selected values are required.
-- Add unique/transaction-safe IP allocation and VMID provisioning tests for concurrent orders.
 - Add explicit HTTP/network timeouts to all PVE calls.
 - Minimize exception details returned to end users.
 - Add CSP/security headers for the noVNC surface.

@@ -694,6 +694,114 @@ jobs:
           }
           PHP
 
+      - name: Enforce provisioning concurrency guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq "pvewhmcs_with_advisory_lock('service:'" modules/servers/pvewhmcs/pvewhmcs.php
+          grep -Fq "pvewhmcs_with_advisory_lock('ip_pool:'" modules/servers/pvewhmcs/pvewhmcs.php
+          test "$(grep -Fc "pvewhmcs_with_advisory_lock('vmid_allocator'" modules/servers/pvewhmcs/pvewhmcs.php)" -eq 2
+          ! grep -Fq "get('/cluster/nextid', [" modules/servers/pvewhmcs/pvewhmcs.php
+          ! grep -Fq 'json_encode($settings)' modules/servers/pvewhmcs/pvewhmcs.php
+
+      - name: Behaviorally verify VMID allocation locking
+        shell: bash
+        run: |
+          set -euo pipefail
+          php <<'PHP'
+          <?php
+          namespace Illuminate\Database\Capsule {
+              class Manager {
+                  public static $mapped = array();
+                  public static $selectCalls = array();
+
+                  public static function table($name) {
+                      return new \PvewhmcsFakeQuery();
+                  }
+
+                  public static function select($sql, $bindings = array()) {
+                      self::$selectCalls[] = array($sql, $bindings);
+                      if (strpos($sql, 'GET_LOCK') !== false) {
+                          return array((object) array('acquired' => 1));
+                      }
+                      if (strpos($sql, 'RELEASE_LOCK') !== false) {
+                          return array((object) array('released' => 1));
+                      }
+                      return array();
+                  }
+              }
+          }
+
+          namespace {
+              class PvewhmcsFakeQuery {
+                  private $candidate = null;
+
+                  public function where($field, $operator = null, $value = null) {
+                      if ($field === 'vmid') {
+                          $this->candidate = (int) ($value === null ? $operator : $value);
+                      }
+                      return $this;
+                  }
+
+                  public function exists() {
+                      return in_array(
+                          $this->candidate,
+                          \Illuminate\Database\Capsule\Manager::$mapped,
+                          true
+                      );
+                  }
+              }
+
+              chdir('modules/servers/pvewhmcs');
+              define('ROOTDIR', realpath('../../..'));
+              require 'pvewhmcs.php';
+
+              $thrown = false;
+              try {
+                  pvewhmcs_with_advisory_lock('unit-test', 0, function () {
+                      throw new RuntimeException('expected');
+                  });
+              } catch (RuntimeException $e) {
+                  $thrown = $e->getMessage() === 'expected';
+              }
+              if (!$thrown) {
+                  throw new RuntimeException('Advisory-lock callback exception was not propagated.');
+              }
+
+              $sql = array_map(function ($call) { return $call[0]; }, \Illuminate\Database\Capsule\Manager::$selectCalls);
+              if (count(array_filter($sql, function ($v) { return strpos($v, 'GET_LOCK') !== false; })) !== 1
+                  || count(array_filter($sql, function ($v) { return strpos($v, 'RELEASE_LOCK') !== false; })) !== 1) {
+                  throw new RuntimeException('Advisory lock was not released in finally.');
+              }
+
+              class FakePveForVmid {
+                  public $paths = array();
+
+                  public function get($path) {
+                      $this->paths[] = $path;
+                      if ($path === '/cluster/nextid') {
+                          return 200;
+                      }
+                      if ($path === '/cluster/nextid?vmid=201') {
+                          return 201;
+                      }
+                      throw new RuntimeException('Unexpected PVE path: ' . $path);
+                  }
+              }
+
+              \Illuminate\Database\Capsule\Manager::$mapped = array(200);
+              $pve = new FakePveForVmid();
+              $vmid = pvewhmcs_find_next_available_vmid($pve, 'node1', 100);
+
+              if ($vmid !== 201) {
+                  throw new RuntimeException('Mapped VMID was not skipped safely.');
+              }
+              if (!in_array('/cluster/nextid?vmid=201', $pve->paths, true)) {
+                  throw new RuntimeException('Explicit VMID availability probe was not sent to PVE.');
+              }
+          }
+          PHP
+
       - name: Execute ZRLE oversized-run regression
         shell: bash
         run: |
