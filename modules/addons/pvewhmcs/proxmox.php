@@ -35,6 +35,9 @@ class PVE2_API {
 	protected $password;
 	protected $port;
 	protected $verify_ssl;
+	protected $api_token_id = null;
+	protected $api_token_secret = null;
+	protected $api_token_authenticated = false;
 
 	protected $login_ticket = null;
 	protected $login_ticket_timestamp = null;
@@ -66,6 +69,21 @@ class PVE2_API {
 		$this->password   = $password;
 		$this->port       = $port;
 		$this->verify_ssl = $verify_ssl;
+
+		// Secure PVE API-token mode:
+		// Store the token ID in WHMCS Server Username as user@realm!tokenid
+		// and the token secret in the WHMCS Server Password field.
+		if (strpos($username, '!') !== false) {
+			if (!preg_match('/^[^@!]+@[^!]+![A-Za-z0-9._-]+$/', $username)) {
+				throw new PVE2_Exception(
+					"PVE2 API: Invalid API token ID. Expected user@realm!tokenid.",
+					8
+				);
+			}
+
+			$this->api_token_id = $username;
+			$this->api_token_secret = $password;
+		}
 	}
 
 	/*
@@ -73,6 +91,26 @@ class PVE2_API {
 	 * Performs login to PVE Server using JSON API, and obtains Access Ticket.
 	 */
 	public function login () {
+		// API tokens authenticate directly with an Authorization header and do
+		// not require a PVE login ticket or CSRF token.
+		if ($this->api_token_id !== null) {
+			$this->api_token_authenticated = true;
+
+			try {
+				$version = $this->get("/version");
+				if (!is_array($version) || empty($version['version'])) {
+					$this->api_token_authenticated = false;
+					return false;
+				}
+
+				$this->reload_node_list();
+				return true;
+			} catch (\Throwable $e) {
+				$this->api_token_authenticated = false;
+				return false;
+			}
+		}
+
 		// Prepare login variables.
 		$login_postfields = array();
 		$login_postfields['username'] = $this->username;
@@ -144,6 +182,10 @@ class PVE2_API {
 	# Attetion, after using this the user is logged into the web interface aswell!
 	# Use with care, and DO NOT use with root, it may harm your system
 	public function setCookie() {
+		if ($this->api_token_id !== null) {
+			throw new PVE2_Exception("PVE2 API: API tokens cannot be converted to PVEAuthCookie sessions.", 9);
+		}
+
 		if (!$this->check_login_ticket()) {
 			throw new PVE2_Exception("PVE2 API: Not logged into Proxmox. No login Access Ticket found or Ticket expired.", 3);
 		}
@@ -153,7 +195,11 @@ class PVE2_API {
 
 	# Gets the PVE Access Ticket
 	public function getTicket() {
-		if ($this->login_ticket['ticket']) {
+		if ($this->api_token_id !== null) {
+			return false;
+		}
+
+		if (isset($this->login_ticket['ticket']) && $this->login_ticket['ticket']) {
 			return $this->login_ticket['ticket'];
 		} else {
 			return false;
@@ -166,6 +212,10 @@ class PVE2_API {
 	 * Method of checking is purely by age of ticket right now...
 	 */
 	protected function check_login_ticket () {
+		if ($this->api_token_id !== null) {
+			return $this->api_token_authenticated === true;
+		}
+
 		if ($this->login_ticket == null) {
 			// Just to be safe, set this to null again.
 			$this->login_ticket_timestamp = null;
@@ -211,7 +261,16 @@ class PVE2_API {
 		curl_setopt($prox_ch, CURLOPT_URL, "https://{$host_url}:{$this->port}/api2/json{$action_path}");
 
 		$put_post_http_headers = array();
-		$put_post_http_headers[] = "CSRFPreventionToken: {$this->login_ticket['CSRFPreventionToken']}";
+
+		if ($this->api_token_id !== null) {
+			$put_post_http_headers[] = "Authorization: PVEAPIToken="
+				. $this->api_token_id
+				. "="
+				. $this->api_token_secret;
+		} else {
+			$put_post_http_headers[] = "CSRFPreventionToken: {$this->login_ticket['CSRFPreventionToken']}";
+		}
+
 		// Lets decide what type of action we are taking...
 		switch ($http_method) {
 			case "GET":
@@ -225,8 +284,6 @@ class PVE2_API {
 				curl_setopt($prox_ch, CURLOPT_POSTFIELDS, $action_postfields_string);
 				unset($action_postfields_string);
 
-				// Add required HTTP headers.
-				curl_setopt($prox_ch, CURLOPT_HTTPHEADER, $put_post_http_headers);
 				break;
 			case "POST":
 				curl_setopt($prox_ch, CURLOPT_POST, true);
@@ -236,24 +293,27 @@ class PVE2_API {
 				curl_setopt($prox_ch, CURLOPT_POSTFIELDS, $action_postfields_string);
 				unset($action_postfields_string);
 
-				// Add required HTTP headers.
-				curl_setopt($prox_ch, CURLOPT_HTTPHEADER, $put_post_http_headers);
 				break;
 			case "DELETE":
 				curl_setopt($prox_ch, CURLOPT_CUSTOMREQUEST, "DELETE");
 				// No "POST" data required, the delete destination is specified in the URL.
 
-				// Add required HTTP headers.
-				curl_setopt($prox_ch, CURLOPT_HTTPHEADER, $put_post_http_headers);
 				break;
 			default:
 				throw new PVE2_Exception("PVE2 API: Error - Invalid HTTP Method specified.", 5);
 				return false;
 		}
 
+		if (!empty($put_post_http_headers)) {
+			curl_setopt($prox_ch, CURLOPT_HTTPHEADER, $put_post_http_headers);
+		}
+
 		curl_setopt($prox_ch, CURLOPT_HEADER, true);
 		curl_setopt($prox_ch, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($prox_ch, CURLOPT_COOKIE, "PVEAuthCookie=" . $this->login_ticket['ticket']);
+
+		if ($this->api_token_id === null) {
+			curl_setopt($prox_ch, CURLOPT_COOKIE, "PVEAuthCookie=" . $this->login_ticket['ticket']);
+		}
 		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYPEER, $this->verify_ssl);
 		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYHOST, $this->verify_ssl ? 2 : 0);
 		curl_setopt($prox_ch, CURLOPT_CONNECTTIMEOUT, 15);
