@@ -130,6 +130,15 @@ export default class ZRLEDecoder {
         while (i < tileSize) {
             const pixel = this._readPixels(1);
             const length = this._readRLELength();
+
+            // Security hardening for upstream issue #2072: a malicious VNC
+            // server must not be able to claim an RLE run longer than the
+            // remaining tile and drive an unbounded CPU loop.
+            if (i + length > tileSize) {
+                throw new Error('Too big rle length in plain mode: ' + length +
+                                ', allowed length is: ' + (tileSize - i));
+            }
+
             for (let j = 0; j < length; j++) {
                 data[i * 4] = pixel[0];
                 data[i * 4 + 1] = pixel[1];
