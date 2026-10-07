@@ -1,6 +1,25 @@
 # Changelog
 All notable changes to Proxmox VE for WHMCS will be documented in this file.
 
+
+## [1.3.6] - 2026-10-07 - _"Security Hardening"_
+
+### 🔒 Security
+- PVE API TLS validation is mandatory and fail-closed.
+- Provisioning/management requires a dedicated non-root PVE API token.
+- Sensitive WHMCS module logging is centrally redacted.
+- noVNC console authorization uses server-side ownership checks, POST-only one-time sessions, pinned WSS destination and short-lived HttpOnly cookies.
+- Addon mutations require WHMCS CSRF tokens; stored/admin/client output is contextually escaped.
+- VNC secret storage is WHMCS-encrypted and legacy plaintext migrates securely.
+- IPv4 CIDR import is bounded; noVNC ZRLE oversized runs are rejected.
+- QEMU/LXC plan configuration now uses centralized enum, identifier and numeric range validation before persistence.
+
+### 🗄️ Schema
+- Widen `mod_pvewhmcs_plans.cpuunits` to unsigned INT so the documented range up to 500000 is stored safely.
+
+### 🧪 CI
+- Expanded PHP syntax and behavioral security regression coverage.
+
 ## [1.3.5] - 2026-05-13 - _"Ports and Consoles"_
 
 ### 🚀 Feature
