@@ -191,6 +191,10 @@ jobs:
         run: |
           set -euo pipefail
           grep -Fq "pvewhmcs_encrypt_secret" modules/addons/pvewhmcs/security.php
+          grep -Fq "pvewhmcs_ensure_secret_storage" modules/addons/pvewhmcs/security.php
+          grep -Fq "WHMCS secret encryption round-trip verification failed" modules/addons/pvewhmcs/security.php
+          grep -Fq "Encrypted VNC secret failed persistence integrity verification" modules/addons/pvewhmcs/security.php
+          grep -Eq '`vnc_secret`[[:space:]]+text' modules/addons/pvewhmcs/db.sql
           grep -Fq 'type="password"' modules/addons/pvewhmcs/pvewhmcs.php
           ! grep -InE 'name="vnc_secret"[^>]*value="[^"]+"' modules/addons/pvewhmcs/pvewhmcs.php
 
