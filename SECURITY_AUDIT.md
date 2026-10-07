@@ -353,19 +353,23 @@ No long-lived or broadly scoped PVE auth cookie is readable by unrelated applica
 
 ### Remediation applied
 
-- `PVEAuthCookie` is now short-lived (about 120 seconds), `Secure`, `HttpOnly`, `SameSite=Strict`, and scoped to `/api2/json/`.
-- JavaScript can no longer read the PVE authentication ticket.
+- `PVEAuthCookie` is now a handshake-only credential with a **60-second fallback TTL**, `Secure`, `HttpOnly`, `SameSite=Strict`, and scope limited to `/api2/json/`.
+- JavaScript can never read the PVE authentication ticket.
+- After noVNC reports a successful WebSocket connection, the page sends a same-origin POST containing a separate one-time cleanup nonce to `novnc_cookie_clear.php`.
+- The cleanup endpoint revalidates the authenticated client, service ownership, currently assigned PVE server and expected cookie domain before expiring `PVEAuthCookie` immediately.
+- Cleanup nonces are session-bound, single-use, expire within 60 seconds and are capped/pruned to avoid unbounded session growth.
 - Cookie-domain calculation is derived from both trusted WHMCS/PVE hostnames instead of blindly using the final two labels.
 - Direct console mode requires trusted HTTPS DNS hostnames under a common registrable domain.
+- Security Regression CI now enforces the 60-second TTL, secure attributes, cleanup endpoint, one-time nonce consumption and domain revalidation.
 
 ### Residual architectural note
 
-Direct browser-to-PVE WebSocket access still requires the PVE cookie to be available to the PVE sibling hostname. Completely eliminating that shared-domain cookie would require a dedicated authenticated WebSocket reverse proxy rather than the current direct-PVE noVNC architecture.
+Direct browser-to-PVE WebSocket access still requires the PVE authentication cookie during the WebSocket handshake. The hardened flow removes it immediately after a successful connection, with the 60-second expiry only as fallback. Completely eliminating even this handshake-time shared-domain cookie would require an authenticated WebSocket reverse proxy rather than the current direct-PVE noVNC architecture.
 
 ### Fix commit / verification
 
-- Commits: `d0a6f5aa062ea61d33cf17678412ad613e1113c2`, `10523475516b4417755def832fbbd82573577ebb`
-- Verification: inspect browser cookie attributes and successful WSS authentication in the production domain topology before marking VERIFIED.
+- Commits: `d0a6f5aa062ea61d33cf17678412ad613e1113c2`, `10523475516b4417755def832fbbd82573577ebb`, plus this SEC-006 follow-up branch.
+- Verification: static review and Security Regression coverage complete. In staging, inspect the browser cookie jar to confirm the cookie exists only for the handshake and is expired immediately after noVNC connects; also verify successful WSS authentication and reconnect behavior before marking VERIFIED.
 
 ## SEC-007 — State-changing admin operations use GET and forms lack explicit module-level CSRF validation
 
