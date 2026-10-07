@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS `mod_pvewhmcs_plans` (
   `cpuemu` varchar(30) CHARACTER SET utf8 DEFAULT NULL,
   `cores` smallint(4) unsigned DEFAULT NULL,
   `cpulimit` smallint(5) unsigned DEFAULT NULL,
-  `cpuunits` smallint(5) unsigned DEFAULT NULL,
+  `cpuunits` int(10) unsigned DEFAULT NULL,
   `memory` int(10) unsigned NOT NULL,
   `swap` int(10) unsigned DEFAULT NULL,
   `disk` int(10) unsigned DEFAULT NULL,
