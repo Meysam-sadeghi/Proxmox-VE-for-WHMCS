@@ -40,7 +40,7 @@ class PVE2_API {
 	protected $login_ticket_timestamp = null;
 	protected $cluster_node_list = null;
 
-	public function __construct ($hostname, $username, $realm, $password, $port = 8006, $verify_ssl = false) {
+	public function __construct ($hostname, $username, $realm, $password, $port = 8006, $verify_ssl = true) {
 		if (empty($hostname) || empty($username) || empty($realm) || empty($password) || empty($port)) {
 			throw new PVE2_Exception("PVE2 API: Hostname/Username/Realm/Password/Port required for PVE2_API object constructor.", 1);
 		}
