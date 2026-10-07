@@ -43,7 +43,7 @@ class PVE2_API {
 	protected $login_ticket_timestamp = null;
 	protected $cluster_node_list = null;
 
-	public function __construct ($hostname, $username, $realm, $password, $port = 8006, $verify_ssl = true) {
+	public function __construct ($hostname, $username, $realm, $password, $port = 8006, $verify_ssl = true, $require_api_token = false) {
 		if (empty($hostname) || empty($username) || empty($realm) || empty($password) || empty($port)) {
 			throw new PVE2_Exception("PVE2 API: Hostname/Username/Realm/Password/Port required for PVE2_API object constructor.", 1);
 		}
@@ -81,6 +81,9 @@ class PVE2_API {
 				7
 			);
 		}
+		if (!is_bool($require_api_token)) {
+			throw new PVE2_Exception("PVE2 API: require_api_token must be boolean.", 11);
+		}
 
 		$this->hostname   = $hostname;
 		$this->username   = $username;
@@ -102,6 +105,13 @@ class PVE2_API {
 
 			$this->api_token_id = $username;
 			$this->api_token_secret = $password;
+		}
+
+		if ($require_api_token && $this->api_token_id === null) {
+			throw new PVE2_Exception(
+				"PVE2 API: Provisioning/management authentication requires a dedicated API token in user@realm!tokenid format.",
+				12
+			);
 		}
 	}
 
