@@ -775,3 +775,4 @@ Residual/security dependencies:
 - Reinstall implementation commits reviewed: `52e41c649df43ac4adbe6bae692f81a41ead0d45`, `fa8736ca8064c14221531170228e36b2d0a49d75`, `054d8da0a2c7d0beee1aee1c28f1f01fa214075f`.
 - PVE API transport response handling updated for protocol-independent HTTP status/header parsing in `7b1f3c7a3581cc2f0ab3d05edd292d0994b54ec8`.
 - Existing security findings were **not** marked fixed by the Reinstall work; SEC-001 through SEC-016 retain their previous statuses unless separately remediated and verified.
+- Added `.github/workflows/php-lint.yml` so future PHP-changing pushes/PRs have a repository-level syntax check. Connector-authored commits did not produce a workflow run during this session, so this is not recorded as a completed runtime/lint verification.
