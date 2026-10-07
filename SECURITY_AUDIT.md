@@ -3,7 +3,7 @@
 > **Repository:** `Meysam-sadeghi/Proxmox-VE-for-WHMCS`  
 > **Audit date:** 2026-10-07  
 > **Original audit baseline:** `7ff41ccecde7e1d846860e3b24208129ee8fdd42`  
-> **Security-hardened source baseline:** `ba72105ccb20670a40c4cc4a4cdd061dfd3fb525`  
+> **Security-hardened source baseline:** `336a81e477a22ee81514635e8f51069fe78eea93`  
 > **Module version:** 1.3.6  
 > **Companion architecture map:** `SYSTEM_MAP.md`
 
@@ -11,7 +11,7 @@
 
 This file is the authoritative security-review handoff for future remediation work.
 
-**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; the hardened baseline now includes SEC-001 through SEC-020, with SEC-020 merged at `ba72105ccb20670a40c4cc4a4cdd061dfd3fb525`. For future work, compare the current HEAD against `ba72105ccb20670a40c4cc4a4cdd061dfd3fb525` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
+**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; the hardened baseline now includes SEC-001 through SEC-021, with SEC-021 merged at `336a81e477a22ee81514635e8f51069fe78eea93`. For future work, compare the current HEAD against `336a81e477a22ee81514635e8f51069fe78eea93` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
 
 When fixing an item:
 
@@ -989,7 +989,7 @@ If a routing/context weakness elsewhere ever supplied another service ID to this
 
 ### Fix commit / verification
 
-- Commit: pending merge of the SEC-021 hardening branch.
+- Commit: `336a81e477a22ee81514635e8f51069fe78eea93`
 - Verification: PHP Syntax Check and Security Regression CI must pass. Staging should confirm normal Client Area rendering for the rightful client and generic denial for a deliberately mismatched test context.
 
 ---
