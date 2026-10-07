@@ -14,6 +14,7 @@ All notable changes to Proxmox VE for WHMCS will be documented in this file.
 - IPv4 CIDR import is bounded; noVNC ZRLE oversized runs are rejected.
 - QEMU/LXC plan configuration now uses centralized enum, identifier and numeric range validation before persistence.
 - Concurrent provisioning now serializes per-service, per-IP-pool and VMID allocation critical sections to prevent duplicate reservations.
+- Client power/Reinstall failure messages no longer expose PVE response, VMID, node or exception internals.
 
 ### 🗄️ Schema
 - Widen `mod_pvewhmcs_plans.cpuunits` to unsigned INT so the documented range up to 500000 is stored safely.
