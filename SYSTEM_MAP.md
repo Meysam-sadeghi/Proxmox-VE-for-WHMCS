@@ -287,8 +287,8 @@ The live provisioning flow also reads/writes standard WHMCS tables including `tb
 
 1. WHMCS calls `pvewhmcs_CreateAccount($params)`.
 2. Module loads selected module plan and IP pool.
-3. It selects the first unused IPv4 using a parameterized SQL query.
-4. It reserves that IP in `tblhosting.dedicatedip`.
+3. Under a per-pool advisory lock, it selects the first unused IPv4 and immediately reserves it in `tblhosting.dedicatedip` (or safely reuses that service's existing valid reservation).
+4. The full CreateAccount operation is protected by a per-service advisory lock to prevent duplicate provisioning for one WHMCS service.
 5. It loads starting VMID and connects to PVE.
 6. It finds the next free VMID.
 
@@ -425,6 +425,7 @@ Key invariants that future changes must preserve:
 14. **Remote update checks remain bounded and format-validated.**
 15. **Security regression CI** must remain green for every module change.
 16. **Admin plan input is validated before persistence.** Preserve enum allowlists, numeric bounds, identifier patterns, VLAN limits and boolean normalization; never write raw plan `$_POST` values directly to the database/PVE flow.
+17. **Provisioning allocation is serialized at critical boundaries.** Keep per-service and per-pool locks plus the short VMID allocation lock; do not separate VMID selection from PVE create/clone submission.
 
 
 ### Negative findings from the static review
