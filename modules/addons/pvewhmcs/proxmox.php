@@ -245,57 +245,61 @@ class PVE2_API {
 		curl_setopt($prox_ch, CURLOPT_COOKIE, "PVEAuthCookie=" . $this->login_ticket['ticket']);
 		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYPEER, false);
 		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYHOST, false);
+		curl_setopt($prox_ch, CURLOPT_CONNECTTIMEOUT, 15);
+		curl_setopt($prox_ch, CURLOPT_TIMEOUT, 120);
 
 		$action_response = curl_exec($prox_ch);
+		$curl_error = curl_error($prox_ch);
+		$http_code = (int) curl_getinfo($prox_ch, CURLINFO_HTTP_CODE);
+		$header_size = (int) curl_getinfo($prox_ch, CURLINFO_HEADER_SIZE);
 
+		if ($action_response === false) {
+			curl_close($prox_ch);
+			throw new PVE2_Exception(
+				"PVE2 API: cURL request failed: " . ($curl_error !== '' ? $curl_error : 'unknown transport error')
+			);
+		}
+
+		// CURLINFO_HTTP_CODE and CURLINFO_HEADER_SIZE work regardless of whether
+		// libcurl negotiated HTTP/1.1 or HTTP/2 with Proxmox VE 9.
+		$header_response = substr($action_response, 0, $header_size);
+		$body_response = substr($action_response, $header_size);
 		curl_close($prox_ch);
 		unset($prox_ch);
 
-		$split_action_response = explode("\r\n\r\n", $action_response, 2);
-		$header_response = $split_action_response[0];
-		$body_response = $split_action_response[1];
 		$action_response_array = json_decode($body_response, true);
 
-		$action_response_export = var_export($action_response_array, true);
-		// error_log("----------------------------------------------\n" .
-		//	"FULL RESPONSE:\n\n{$action_response}\n\nEND FULL RESPONSE\n\n" .
-		//	"Headers:\n\n{$header_response}\n\nEnd Headers\n\n" .
-		//	"Data:\n\n{$body_response}\n\nEnd Data\n\n" .
-		//	"RESPONSE ARRAY:\n\n{$action_response_export}\n\nEND RESPONSE ARRAY\n" .
-		//	"----------------------------------------------");
-
-		unset($action_response);
-		unset($action_response_export);
-
-		// Parse response, confirm HTTP response code etc.
-		$split_headers = explode("\r\n", $header_response);
-		if (substr($split_headers[0], 0, 9) == "HTTP/1.1 ") {
-			$split_http_response_line = explode(" ", $split_headers[0]);
-			if ($split_http_response_line[1] == "200") {
-				if ($http_method == "PUT") {
-					return true;
-				} else {
-					return $action_response_array['data'];
-				}
-			} else {
-				throw new PVE2_Exception("PVE2 API: This API Request Failed.\n" .
-					"HTTP CODE: {$split_http_response_line[1]},\n" .
-					"HTTP ERROR: {$split_headers[0]},\n" . 
-					"REPLY INFO: {$body_response}");
-				return false;
+		if ($http_code < 200 || $http_code >= 300) {
+			$reply_info = $body_response;
+			if (is_array($action_response_array) && isset($action_response_array['errors'])) {
+				$reply_info = json_encode($action_response_array['errors']);
 			}
-		} else {
-			throw new PVE2_Exception("PVE2 API: Error - Invalid HTTP Response.\n" . var_export($split_headers, true));
-			return false;
+
+			throw new PVE2_Exception(
+				"PVE2 API: This API Request Failed.\n"
+				. "HTTP CODE: {$http_code},\n"
+				. "REPLY INFO: {$reply_info}"
+			);
 		}
 
-		if (!empty($action_response_array['data'])) {
-			return $action_response_array['data'];
-		} else {
-			throw new PVE2_Exception("PVE2 API: \$action_response_array['data'] is empty. Returning false.\n" .
-				var_export($action_response_array['data'], true));
-			return false;
+		if ($body_response !== '' && $action_response_array === null && json_last_error() !== JSON_ERROR_NONE) {
+			throw new PVE2_Exception(
+				"PVE2 API: Invalid JSON response from Proxmox VE. HTTP CODE: {$http_code}"
+			);
 		}
+
+		$data = is_array($action_response_array) && array_key_exists('data', $action_response_array)
+			? $action_response_array['data']
+			: null;
+
+		// Historical callers expect PUT to return boolean success. Proxmox POST
+		// operations commonly return a UPID string, while DELETE may also return
+		// task data; preserve those values for asynchronous task polling.
+		if ($http_method == "PUT") {
+			return true;
+		}
+
+		return $data;
 	}
 
 	/*
