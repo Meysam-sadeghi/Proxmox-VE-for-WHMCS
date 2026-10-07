@@ -340,7 +340,7 @@ function pvewhmcs_output($vars) {
 			// Decrypt server password (same approach as ClientArea)
 			$api_data = array('password2' => $pve->password);
 			$serverpassword = localAPI('DecryptPassword', $api_data);
-			$serverip       = $pve->ipaddress;
+			$serverip       = !empty($pve->hostname) ? $pve->hostname : $pve->ipaddress;
 			$serverusername = $pve->username;
 			$serverlabel    = !empty($pve->name) ? $pve->name : ('Server #' . $pve->id);
 
@@ -495,7 +495,7 @@ function pvewhmcs_output($vars) {
 		foreach ($servers as $pve) {
 			$api_data = array('password2' => $pve->password);
 			$serverpassword = localAPI('DecryptPassword', $api_data);
-			$serverip       = $pve->ipaddress;
+			$serverip       = !empty($pve->hostname) ? $pve->hostname : $pve->ipaddress;
 			$serverusername = $pve->username;
 			$serverlabel    = !empty($pve->name) ? $pve->name : ('Server #' . $pve->id);
 
@@ -856,7 +856,7 @@ function pvewhmcs_output($vars) {
 	            throw new Exception('Could not decrypt Proxmox server password.');
 	        }
 
-	        $proxmox = new PVE2_API($pve->ipaddress, $pve->username, "pam", $serverpassword);
+	        $proxmox = new PVE2_API(!empty($pve->hostname) ? $pve->hostname : $pve->ipaddress, $pve->username, "pam", $serverpassword);
 	        if (!$proxmox->login()) {
 	            throw new Exception('Unable to log in to PVE API on ' . htmlspecialchars($pve->ipaddress) . '. Check credentials, connectivity & configurations.');
 	        }
