@@ -609,10 +609,12 @@ Client input cannot select an arbitrary WebSocket host/port/path.
 
 ### Remediation applied
 
-- Browser input can no longer supply the PVE host, API port, guest path, VMID or node.
+- Browser input can no longer supply the PVE host, API port, guest path, VMID, node or PVE/VNC tickets; the only console query parameter is an opaque one-time `session` nonce.
 - Destination is resolved server-side from the authenticated WHMCS service/server mapping and trusted PVE cluster resources.
+- The final handoff revalidates that the assigned PVE host/port still matches the server-side runtime entry.
 - The minimal noVNC page sets CSP `connect-src` to the single resolved PVE WSS origin.
 - Runtime state is bound to an authenticated one-time console session.
+- Security CI asserts that no browser-controlled destination/ticket parameter can be reintroduced and that CSP remains pinned to the resolved WSS origin.
 
 ### Fix commit / verification
 
