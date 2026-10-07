@@ -415,11 +415,13 @@ An authenticated WHMCS administrator may be induced to trigger a state-changing 
 - Every module POST form emits a WHMCS CSRF token.
 - Destructive operations use an allowlisted POST dispatcher and positive integer target validation.
 - QEMU/LXC plan updates no longer take the mutation target from `$_GET['id']`; edit forms carry a CSRF-protected hidden `plan_id`, which is positively validated before the update function is called.
+- Security Regression CI now structurally parses every addon `method="post"` form and fails if any form omits `pvewhmcs_admin_csrf_input()`.
+- CI also extracts all primary mutation-function bodies and fails if any of them reads mutation state/targets from `$_GET`.
 
 ### Fix commit / verification
 
 - Commit: `c2de9ac651968c410c15bd369dd3236fbc8500cc`
-- Verification: static route/form review complete. Test a valid admin POST, missing token, wrong token and old GET delete URLs in WHMCS before marking VERIFIED.
+- Verification: static route/form review complete and structural CI coverage added for all current POST forms and primary mutation functions. Test a valid admin POST, missing token, wrong token and old GET delete URLs in a real WHMCS admin session before marking VERIFIED.
 
 ## SEC-008 — Inconsistent contextual output escaping / stored XSS surface
 
