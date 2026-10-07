@@ -8,7 +8,7 @@
 ## 1. Snapshot / provenance
 
 - Repository: `Meysam-sadeghi/Proxmox-VE-for-WHMCS`
-- Module version: **1.3.5**
+- Module version: **1.3.6**
 - Default branch: `master`
 - Reviewed commit: `7ff41ccecde7e1d846860e3b24208129ee8fdd42`
 - Reviewed tree: `5a554988a633335295ff001eb53b8013c07afe5f`
@@ -424,6 +424,7 @@ Key invariants that future changes must preserve:
 13. **Legacy custom crypto must stay removed.** CI rejects the removed password helper and SHA1/MD5/custom-PRNG credential patterns in first-party PHP.
 14. **Remote update checks remain bounded and format-validated.**
 15. **Security regression CI** must remain green for every module change.
+16. **Admin plan input is validated before persistence.** Preserve enum allowlists, numeric bounds, identifier patterns, VLAN limits and boolean normalization; never write raw plan `$_POST` values directly to the database/PVE flow.
 
 
 ### Negative findings from the static review
