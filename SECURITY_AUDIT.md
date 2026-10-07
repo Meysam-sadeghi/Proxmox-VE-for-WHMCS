@@ -3,7 +3,7 @@
 > **Repository:** `Meysam-sadeghi/Proxmox-VE-for-WHMCS`  
 > **Audit date:** 2026-10-07  
 > **Original audit baseline:** `7ff41ccecde7e1d846860e3b24208129ee8fdd42`  
-> **Security-hardened source baseline:** `d4b61805d5d566220ebcf3bbd8239a78ca5a3651`  
+> **Security-hardened source baseline:** `ea807a8f873d82bf225f11d0971bef6895be6a9d`  
 > **Module version:** 1.3.5  
 > **Companion architecture map:** `SYSTEM_MAP.md`
 
@@ -11,7 +11,7 @@
 
 This file is the authoritative security-review handoff for future remediation work.
 
-**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; all tracked source-level remediations SEC-001 through SEC-016 were merged in PR #2 at `d4b61805d5d566220ebcf3bbd8239a78ca5a3651`. For future work, compare the current HEAD against `d4b61805d5d566220ebcf3bbd8239a78ca5a3651` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
+**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; all tracked source-level remediations SEC-001 through SEC-016 were merged in PR #2, and SEC-001 was further hardened fail-closed in PR #3 at `ea807a8f873d82bf225f11d0971bef6895be6a9d`. For future work, compare the current HEAD against `ea807a8f873d82bf225f11d0971bef6895be6a9d` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
 
 When fixing an item:
 
@@ -87,9 +87,9 @@ A client Reinstall/Rebuild action was added after the original audit. Its owners
 
 ### Evidence
 
-- `PVE2_API::__construct(..., $verify_ssl = false)` still defaults certificate verification off.
-- Post-audit hardening commit `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f` made login and subsequent API requests consistently honor the configured `verify_ssl` flag, using hostname verification mode `2` when enabled.
-- The finding remains OPEN because existing callers do not enable the flag and the constructor default remains insecure-by-default.
+- The original code defaulted `verify_ssl` to false and the generic API request path disabled certificate verification.
+- The hardened client now defaults verification to true, uses peer verification plus hostname verification mode `2`, and rejects any explicit attempt to pass `verify_ssl=false`.
+- All module callers prefer the configured certificate-valid PVE hostname over a raw IP where available.
 
 ### Security impact
 
@@ -121,8 +121,8 @@ A man-in-the-middle on the WHMCS↔PVE path can potentially impersonate the PVE 
 
 ### Fix commit / verification
 
-- Commits: `a44b3a8b0d74736bd35130bf2d1b10de79c7ea0e`, `fea0f79cb0f2bc45895025f836190f2fe525c8f3`, `cf820f2f9fd039340fc68fa1743241474f77106d`, `653a43a8883cf49526a368774e82c70df57fd037`
-- Verification: static code review complete. Test valid, wrong-hostname and untrusted certificates against the deployment before marking VERIFIED.
+- Commits: `a44b3a8b0d74736bd35130bf2d1b10de79c7ea0e`, `fea0f79cb0f2bc45895025f836190f2fe525c8f3`, `cf820f2f9fd039340fc68fa1743241474f77106d`, `653a43a8883cf49526a368774e82c70df57fd037`, merge follow-up `ea807a8f873d82bf225f11d0971bef6895be6a9d`
+- Verification: static code review complete; PHP Syntax Check and Security Regression Checks pass, including a behavioral test proving `verify_ssl=false` is rejected. Test valid, wrong-hostname and untrusted certificates against the deployment before marking VERIFIED.
 
 ## SEC-002 — Normal API design uses root-equivalent Proxmox credentials
 
