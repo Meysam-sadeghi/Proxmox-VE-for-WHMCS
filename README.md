@@ -271,6 +271,44 @@ If using ZFS for Templates, substitute `local` with the volume name.
 
 Create a 2nd Custom Field `Password` for the Container's root user on all CT Services.
 
+### ♻️ Client Reinstall / Rebuild (Proxmox VE 9+)
+
+The WHMCS Client Area now exposes a **Reinstall OS** action for active QEMU and LXC services.
+
+This workflow uses the Proxmox VE REST API under `/api2/json` and verifies at runtime that the connected PVE major version is **9 or newer**.
+
+**QEMU requirements**
+
+- Configure the product Custom Field `KVMTemplate` as a WHMCS select/dropdown.
+- Each option value must be the numeric VMID of an actual PVE QEMU **Template**.
+- The QEMU template must include a **Cloud-Init drive**. Reinstall rejects non-template/non-Cloud-Init sources.
+- Use the existing `VMID|Friendly Name` option convention, for example `9000|Ubuntu 24.04 LTS`.
+- Only configured/allowlisted template VMIDs are accepted from the client.
+
+**LXC requirements**
+
+- Configure the product Custom Field `Template` as a WHMCS select/dropdown.
+- Option values must be PVE template volume IDs such as `local:vztmpl/ubuntu-24.04-standard_amd64.tar.zst`.
+- The template must already exist on at least one PVE node.
+- Only configured/allowlisted template values are accepted.
+
+**Safety behavior**
+
+1. The client must own the active WHMCS service and its mapped PVE guest.
+2. Reinstall uses a one-time per-service CSRF nonce plus an explicit checkbox and requires typing `REINSTALL`.
+3. A per-service database lock blocks simultaneous reinstall requests.
+4. The module creates/clones the replacement under a **new VMID first** while the old VM/CT remains available.
+5. The replacement receives the service's existing IPv4 and plan/network settings but remains stopped while being prepared.
+6. Only after successful replacement creation is the old guest stopped and the replacement started.
+7. If replacement startup or pre-mapping cutover fails, the replacement is removed and the old guest is restarted when it had previously been running.
+8. After successful startup, the WHMCS service mapping is atomically moved to the new VMID and the old guest is deleted.
+9. A new cryptographically random guest password is generated, displayed once in the result, and saved to the WHMCS service password using the WHMCS Local API. It is not written to the module log.
+
+> [!IMPORTANT]
+> Reinstall is destructive. All data in the old guest is discarded after successful cutover. Test the workflow on a non-production WHMCS product/PVE node before enabling it for customers.
+>
+> The existing security findings in `SECURITY_AUDIT.md` still apply. In particular, PVE API TLS verification and least-privilege API credentials should be hardened before production exposure.
+
 ## 🔄 5. PATCH: Updating the Module
 
 ### Regularly check for updates
