@@ -503,11 +503,14 @@ Database value is not reusable plaintext and admin HTML does not contain the exi
 - Config saves update only singleton row ID 1 and verify the persisted encrypted value before commit.
 - Admin UI is a blank password field with a configured-state placeholder; the existing secret is never rendered into HTML.
 - Blank form submission preserves the current secret; replacement values must meet the minimum length.
+- The normal decrypt helper is now **encrypted-only**: any non-`enc:` value is rejected instead of being returned as plaintext.
+- Legacy plaintext is accepted only inside the explicit migration branch. It must be encrypted, transactionally persisted, read back with the `enc:` format intact, and then the operational value is obtained by decrypting that persisted ciphertext.
+- Security Regression CI behaviorally verifies that plaintext decryption is rejected while `enc:` values use the WHMCS decrypt path, and forbids any direct `return $legacyPlaintext` path.
 
 ### Fix commit / verification
 
 - Commits: `d0a6f5aa062ea61d33cf17678412ad613e1113c2`, `013224e6cf6d5a3e632132299d92246baeb189fd`, `0b0021533830d8fd17e6eaf601639cfead144136`
-- Verification: verify the DB contains an `enc:` value after upgrade and console access still works. Rotate the old `vnc@pve` password once after deploying this migration.
+- Verification: source/behavioral CI verifies encrypted-only consumption. In staging, verify the DB contains an `enc:` value after upgrade, console access still works, and a deliberately restored legacy plaintext value is automatically migrated before use. Rotate the old `vnc@pve` password once after deploying this migration.
 
 ## SEC-010 — Unbounded IPv4 CIDR expansion can exhaust resources
 
