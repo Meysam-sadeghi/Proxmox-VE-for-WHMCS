@@ -4,7 +4,7 @@
 > **Audit date:** 2026-10-07  
 > **Original audit baseline:** `7ff41ccecde7e1d846860e3b24208129ee8fdd42`  
 > **Security-hardened source baseline:** `ea807a8f873d82bf225f11d0971bef6895be6a9d`  
-> **Module version:** 1.3.5  
+> **Module version:** 1.3.6  
 > **Companion architecture map:** `SYSTEM_MAP.md`
 
 ## Purpose
@@ -775,12 +775,58 @@ Unavailable GitHub does not materially delay addon page rendering.
 - Commit: `858e3851ffb0834a0e211e0dab67b5ba90a47ab2`
 - Verification: simulate unreachable GitHub/invalid response and confirm admin rendering remains bounded before marking VERIFIED.
 
+## SEC-017 — Admin plan configuration accepts unvalidated values
+
+**Severity:** MEDIUM  
+**Status:** FIXED - NEEDS VERIFICATION  
+**Category:** CWE-20 Improper Input Validation  
+**Primary file:** `modules/addons/pvewhmcs/pvewhmcs.php`
+
+### Evidence
+
+QEMU/LXC plan save/update paths previously copied many values directly from `$_POST` into `mod_pvewhmcs_plans`. Those values later become Proxmox API parameters for CPU, memory, disk, storage, bridge, VLAN, network and OS configuration.
+
+### Security impact
+
+A compromised/admin-crafted request could persist malformed or extreme configuration values and later push them into privileged PVE API operations. Query-builder use prevents classic SQL injection, but it does not validate semantic correctness or bound resource values.
+
+### Remediation applied
+
+- Added centralized string/integer/enum/boolean normalization for plan inputs.
+- QEMU OS type, disk format/cache/type, network mode/model and IPv6 mode now use allowlists.
+- Storage, bridge and CPU-model identifiers must match restricted identifier patterns and database length limits.
+- CPU/RAM/disk/rate/bandwidth values must be integers within defined schema-safe bounds.
+- VLAN is restricted to `1..4094` or blank/untagged.
+- VM bridge index is restricted to `0..255` or blank.
+- Balloon RAM cannot exceed configured VM RAM.
+- Checkbox fields are normalized to literal `0/1` instead of trusting arbitrary POST values.
+- Save/update functions persist only the normalized validation result rather than raw `$_POST`.
+- `cpuunits` storage is widened to `INT UNSIGNED` so the documented Proxmox range through `500000` can be validated without truncation.
+- Module version is bumped to 1.3.6 with an upgrade migration for the column change.
+- Security CI behaviorally tests valid QEMU/LXC plans plus rejected VLAN, identifier, enum and memory-boundary payloads.
+
+### Acceptance criteria
+
+- Valid existing plan configurations continue to save/update.
+- Invalid enum values are rejected before database persistence.
+- Malformed storage/bridge/CPU identifiers are rejected.
+- VLAN outside `1..4094` is rejected.
+- Negative/non-integer resource values are rejected.
+- Balloon memory greater than VM memory is rejected.
+- No plan mutation path directly persists unvalidated `$_POST` values.
+
+### Fix commit / verification
+
+- Commit: pending merge of the SEC-017 hardening branch.
+- Verification: PHP syntax and Security Regression CI must pass. Final WHMCS admin form save/update smoke testing remains required before marking VERIFIED.
+
+---
+
 # Additional hardening observations
 
 These are not currently ranked above the primary findings but should be considered during refactoring:
 
 - Avoid passing the entire WHMCS `$params` structure into Smarty/client templates when only selected values are required.
-- Add strict type/range validation for plan fields (CPU, memory, disk, VLAN, rate, VMID, IDs).
 - Add unique/transaction-safe IP allocation and VMID provisioning tests for concurrent orders.
 - Add explicit HTTP/network timeouts to all PVE calls.
 - Minimize exception details returned to end users.
