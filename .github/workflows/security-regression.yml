@@ -502,6 +502,40 @@ jobs:
           grep -Fq 'type="password"' modules/addons/pvewhmcs/pvewhmcs.php
           ! grep -InE 'name="vnc_secret"[^>]*value="[^"]+"' modules/addons/pvewhmcs/pvewhmcs.php
 
+
+          # Normal decryption must refuse plaintext completely; only the
+          # explicit migration path may ever see a legacy plaintext value.
+          php -r '
+            function localAPI($action, $params) {
+                if ($action === "DecryptPassword") {
+                    return array("result" => "success", "password" => "decrypted-secret");
+                }
+                throw new RuntimeException("unexpected localAPI action");
+            }
+
+            require "modules/addons/pvewhmcs/security.php";
+
+            $rejected = false;
+            try {
+                pvewhmcs_decrypt_secret("legacy-plaintext-secret");
+            } catch (RuntimeException $e) {
+                $rejected = strpos($e->getMessage(), "unencrypted") !== false;
+            }
+
+            if (!$rejected) {
+                fwrite(STDERR, "plaintext module secret was accepted by normal decrypt path\n");
+                exit(1);
+            }
+
+            if (pvewhmcs_decrypt_secret("enc:test-ciphertext") !== "decrypted-secret") {
+                fwrite(STDERR, "encrypted module secret did not use WHMCS decrypt path\n");
+                exit(1);
+            }
+          '
+
+          ! grep -Fq 'return $legacyPlaintext' modules/addons/pvewhmcs/security.php
+          grep -Fq 'VNC secret migration did not produce encrypted storage' modules/addons/pvewhmcs/security.php
+
       - name: Keep IPv4 CIDR imports bounded
         shell: bash
         run: |
