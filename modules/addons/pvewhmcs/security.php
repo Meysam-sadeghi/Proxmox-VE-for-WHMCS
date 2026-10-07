@@ -8,6 +8,88 @@
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 
+
+/**
+ * Recursively redact secrets before any value is written to WHMCS/PHP logs.
+ *
+ * This is defense-in-depth: callers should still avoid logging raw request
+ * bodies, provisioning params, PVE responses, or credentials in the first
+ * place.
+ */
+function pvewhmcs_redact_log_value($value)
+{
+    $sensitiveKeyPattern = '/(?:^|_)(?:pass(?:word)?|secret|token|ticket|cookie|authorization|csrf)(?:$|_)/i';
+
+    if (is_array($value)) {
+        $safe = array();
+
+        foreach ($value as $key => $item) {
+            if (is_string($key) && preg_match($sensitiveKeyPattern, $key)) {
+                $safe[$key] = '[REDACTED]';
+            } else {
+                $safe[$key] = pvewhmcs_redact_log_value($item);
+            }
+        }
+
+        return $safe;
+    }
+
+    if (is_object($value)) {
+        return pvewhmcs_redact_log_value(get_object_vars($value));
+    }
+
+    if (!is_string($value)) {
+        return $value;
+    }
+
+    $patterns = array(
+        '/(PVEAPIToken=)[^=\\s]+=[^\\s,;&]+/i',
+        '/(PVEAuthCookie=)[^\\s;]+/i',
+        '/((?:"|\\\')?(?:password|cipassword|pass|secret|token|ticket|vncticket|csrfpreventiontoken|authorization)(?:"|\\\')?\\s*[:=]\\s*)(?:"[^"]*"|\\\'[^\\\']*\\\'|[^,}\\s;&]+)/i',
+    );
+
+    return preg_replace($patterns, '$1[REDACTED]', $value);
+}
+
+/**
+ * Produce a deliberately small, non-secret summary of a PVE/API response.
+ */
+function pvewhmcs_safe_log_result($value)
+{
+    if (is_string($value)) {
+        if (strpos($value, 'UPID:') === 0) {
+            return 'PVE asynchronous task accepted';
+        }
+
+        return pvewhmcs_redact_log_value(substr($value, 0, 256));
+    }
+
+    if (is_array($value)) {
+        return array(
+            'type' => 'array',
+            'keys' => array_slice(array_map('strval', array_keys($value)), 0, 25),
+            'count' => count($value),
+        );
+    }
+
+    if (is_object($value)) {
+        return array(
+            'type' => 'object',
+            'class' => get_class($value),
+        );
+    }
+
+    if (is_bool($value)) {
+        return $value ? 'true' : 'false';
+    }
+
+    if ($value === null) {
+        return 'null';
+    }
+
+    return gettype($value);
+}
+
 /**
  * Encrypt a module secret using WHMCS's supported EncryptPassword Local API.
  */
