@@ -2489,11 +2489,17 @@ function add_ip_2_pool() {
 			throw new InvalidArgumentException('Invalid IPv4 CIDR notation.');
 		}
 
-		$addressCount = 2 ** (32 - $prefix);
-		if ($addressCount > 4096) {
+		// Fail closed before constructing/iterating the subnet. /20 is the
+		// largest accepted range (4096 addresses); larger networks are rejected
+		// without invoking the iterator at all.
+		if ($prefix < 20) {
 			throw new InvalidArgumentException(
 				'IPv4 import is limited to 4096 addresses. Use /20 or a smaller range.'
 			);
+		}
+		$addressCount = 1 << (32 - $prefix);
+		if ($addressCount < 1 || $addressCount > 4096) {
+			throw new InvalidArgumentException('IPv4 CIDR size is outside the safe import limit.');
 		}
 
 		$subnet = Ipv4_Subnet::fromString($ipBlock);
@@ -2514,6 +2520,10 @@ function add_ip_2_pool() {
 				'ipaddress' => $ip,
 				'mask' => $mask,
 			);
+
+			if (count($rows) > 4096) {
+				throw new RuntimeException('IPv4 subnet iterator exceeded the safe import limit.');
+			}
 		}
 	} else {
 		if (!filter_var($ipBlock, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
