@@ -295,7 +295,7 @@ This workflow uses the Proxmox VE REST API under `/api2/json` and verifies at ru
 **Safety behavior**
 
 1. The client must own the active WHMCS service and its mapped PVE guest.
-2. Reinstall uses a one-time per-service CSRF nonce plus an explicit checkbox and requires typing `REINSTALL`.
+2. Reinstall requires the native WHMCS client-area CSRF token **and** a one-time per-service nonce, plus an explicit checkbox and the literal confirmation phrase `REINSTALL`.
 3. A per-service database lock blocks simultaneous reinstall requests.
 4. The module creates/clones the replacement under a **new VMID first** while the old VM/CT remains available.
 5. The replacement receives the service's existing IPv4 and plan/network settings but remains stopped while being prepared.

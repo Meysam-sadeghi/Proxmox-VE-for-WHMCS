@@ -192,7 +192,8 @@ Key behavior:
 - Requires Proxmox VE major version 9+ via `/version`.
 - QEMU sources are allowlisted numeric `KVMTemplate` values and must resolve to real PVE templates containing Cloud-Init.
 - LXC sources are allowlisted `Template` volume IDs and must exist as `vztmpl` content on a cluster node.
-- Uses a one-time per-service session nonce, explicit destructive confirmation and a MySQL advisory lock.
+- Uses the native WHMCS client-area CSRF token plus a one-time per-service session nonce, explicit destructive confirmation and a MySQL advisory lock.
+- Renders through the dedicated `reinstall.tpl` custom-action template using WHMCS `templatefile + vars`, rather than returning raw HTML from the module function.
 - Generates a replacement under a new VMID before stopping the old guest.
 - Reuses the service IP and plan-derived network/resource configuration.
 - Starts the replacement before atomically moving the WHMCS mapping.
