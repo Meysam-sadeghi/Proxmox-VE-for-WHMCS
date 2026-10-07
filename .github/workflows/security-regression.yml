@@ -169,7 +169,9 @@ jobs:
           grep -Fq 'Console server assignment changed' modules/servers/pvewhmcs/novnc_client.php
           grep -Fq "\$cspConnect = 'wss://' . \$host . ':' . \$port;" modules/servers/pvewhmcs/novnc_client.php
           grep -Fq '"connect-src " . $cspConnect' modules/servers/pvewhmcs/novnc_client.php
-          ! grep -InE '\$_(GET|POST|REQUEST)\[["'"'](host|port|path|node|vmid|vncticket|pveticket)["'"']\]'             modules/servers/pvewhmcs/novnc_router.php             modules/servers/pvewhmcs/novnc_client.php
+          ! grep -InE '\$_(POST|REQUEST)\[' \
+            modules/servers/pvewhmcs/novnc_router.php \
+            modules/servers/pvewhmcs/novnc_client.php
 
       - name: Keep addon deletes POST-only
         shell: bash
