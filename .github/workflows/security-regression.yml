@@ -240,41 +240,43 @@ jobs:
             }
           '
 
-      - name: Keep console tickets out of public HTTP links
+      - name: Keep console bootstrap POST-only and URL-clean
         shell: bash
         run: |
           set -euo pipefail
-          ! grep -InE 'novnc_router\.php\?.*(pveticket|vncticket|host=|port=|path=)' modules/servers/pvewhmcs/pvewhmcs.php
-          ! grep -Fq "\$_GET['host']" modules/servers/pvewhmcs/novnc_router.php
-          ! grep -Fq "\$_GET['port']" modules/servers/pvewhmcs/novnc_router.php
-          ! grep -Fq "\$_GET['path']" modules/servers/pvewhmcs/novnc_router.php
-          ! grep -Fq "\$_GET['pveticket']" modules/servers/pvewhmcs/novnc_router.php
-          ! grep -Fq "\$_GET['vncticket']" modules/servers/pvewhmcs/novnc_router.php
-          ! grep -Fq "\$_GET['host']" modules/servers/pvewhmcs/novnc_client.php
-          ! grep -Fq "\$_GET['port']" modules/servers/pvewhmcs/novnc_client.php
-          ! grep -Fq "\$_GET['vncticket']" modules/servers/pvewhmcs/novnc_client.php
-          grep -Fq "where('userid', '=', \$clientId)" modules/servers/pvewhmcs/novnc_router.php
-          grep -Fq "where('userid', '=', \$sessionClientId)" modules/servers/pvewhmcs/novnc_client.php
-          grep -Fq "Console server assignment changed" modules/servers/pvewhmcs/novnc_client.php
-          grep -Fq "while (count(\$_SESSION['pvewhmcs_console']) >= 5)" modules/servers/pvewhmcs/pvewhmcs.php
-          grep -Fq "while (count(\$_SESSION['pvewhmcs_console_runtime']) >= 5)" modules/servers/pvewhmcs/novnc_router.php
+
+          # Console launch nonce must be in the POST body, never the public URL.
+          ! grep -InE 'novnc_router\.php\?.*session=' modules/servers/pvewhmcs/pvewhmcs.php
+          grep -Fq '<form method="post"' modules/servers/pvewhmcs/pvewhmcs.php
+          grep -Fq 'name="session"' modules/servers/pvewhmcs/pvewhmcs.php
+
+          # Router must reject non-POST requests and accept no console state
+          # from query-string input.
+          grep -Fq "$_SERVER['REQUEST_METHOD'] !== 'POST'" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "$_POST['session']" modules/servers/pvewhmcs/novnc_router.php
+          ! grep -Fq '$_GET[' modules/servers/pvewhmcs/novnc_router.php
+          ! grep -InE '\$_(POST|REQUEST)\[(.host.|.port.|.path.|.pveticket.|.vncticket.|.vmid.|.node.)\]'             modules/servers/pvewhmcs/novnc_router.php
+
+          # The obsolete second-stage endpoint must stay removed.
+          test ! -e modules/servers/pvewhmcs/novnc_client.php
+
           grep -Fq "Referrer-Policy: no-referrer" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq 'Cross-Origin-Opener-Policy: same-origin' modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq 'Console authorization state changed during bootstrap' modules/servers/pvewhmcs/novnc_router.php
 
       - name: Keep noVNC destination server-side and CSP-pinned
         shell: bash
         run: |
           set -euo pipefail
-          test "$(grep -Fc '$_GET[' modules/servers/pvewhmcs/novnc_router.php)" -eq 1
-          test "$(grep -Fc '$_GET[' modules/servers/pvewhmcs/novnc_client.php)" -eq 1
-          grep -Fq "\$_GET['session']" modules/servers/pvewhmcs/novnc_router.php
-          grep -Fq "\$_GET['session']" modules/servers/pvewhmcs/novnc_client.php
+
           grep -Fq 'FILTER_VALIDATE_DOMAIN' modules/servers/pvewhmcs/novnc_router.php
-          grep -Fq 'Console server assignment changed' modules/servers/pvewhmcs/novnc_client.php
-          grep -Fq "\$cspConnect = 'wss://' . \$host . ':' . \$port;" modules/servers/pvewhmcs/novnc_client.php
-          grep -Fq '"connect-src " . $cspConnect' modules/servers/pvewhmcs/novnc_client.php
-          ! grep -InE '\$_(POST|REQUEST)\[' \
-            modules/servers/pvewhmcs/novnc_router.php \
-            modules/servers/pvewhmcs/novnc_client.php
+          grep -Fq "$cspConnect = 'wss://' . $apiHost . ':' . $apiPort;" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq '"connect-src " . $cspConnect' modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "where('userid', '=', $clientId)" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "where('id', '=', $serviceId)" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "where('id', '=', $serverId)" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "hash_equals($apiHost, $currentHost)" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "while (count($_SESSION['pvewhmcs_console']) >= 5)" modules/servers/pvewhmcs/pvewhmcs.php
 
       - name: Keep addon deletes POST-only
         shell: bash
