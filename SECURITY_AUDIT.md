@@ -994,7 +994,7 @@ If a routing/context weakness elsewhere ever supplied another service ID to this
 
 ---
 
-## SEC-021 — No CI guard against reintroducing backdoor-style primitives or obvious committed secrets
+## SEC-022 — No CI guard against reintroducing backdoor-style primitives or obvious committed secrets
 
 **Severity:** MEDIUM (supply-chain / regression hardening)  
 **Status:** FIXED - NEEDS VERIFICATION  
@@ -1038,8 +1038,8 @@ This is a high-confidence regression gate, not a substitute for GitHub secret sc
 
 ### Fix commit / verification
 
-- Commit: pending merge
-- Verification: require Security Regression Checks and PHP Syntax Check to pass on the PR before merge.
+- Commit: `2c75334ec454989fb58bfa947dabc6707f77efd3`
+- Verification: Security Regression Checks passed, including the new dangerous-primitive and committed-secret gates. This protects future changes but does not replace live deployment verification or provider-native secret scanning.
 
 ---
 
@@ -1050,7 +1050,7 @@ These are not currently ranked above the primary findings but should be consider
 - Avoid passing the entire WHMCS `$params` structure into Smarty/client templates when only selected values are required.
 - Add explicit HTTP/network timeouts to all PVE calls.
 - Add CSP/security headers for the noVNC surface.
-- Add static analysis (PHPStan/Psalm/Semgrep or equivalent) and secret scanning to CI.
+- Consider adding deeper semantic static analysis (PHPStan/Psalm/Semgrep or equivalent). High-confidence committed-secret regression scanning is now present in CI under SEC-022.
 - Keep third-party noVNC pinned to an exact release and re-run hash/vendor review when updating.
 
 ---
@@ -1067,7 +1067,7 @@ At the reviewed source baseline, no evidence was found of:
 - an intentionally hidden credential-exfiltration endpoint;
 - an obvious active SQL injection in the core provisioning path (bound parameters/query-builder usage is present);
 - fork-specific malicious modifications;
-- modified/bundled noVNC files relative to official v1.7.0.
+- malicious/injected noVNC modifications. The vendor tree originally matched official v1.7.0; it now intentionally differs only where documented for the local SEC-011 ZRLE security guard.
 
 This does **not** establish that a deployed server is clean. Production forensic review must separately inspect runtime files, WHMCS hooks/modules outside this repository, cron jobs, web-server/PHP configuration, database/admin accounts, access logs, WHMCS module logs, Proxmox users/tokens and PVE authentication/audit logs.
 
