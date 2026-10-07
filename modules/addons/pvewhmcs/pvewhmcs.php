@@ -772,7 +772,7 @@ function pvewhmcs_output($vars) {
 		</tr>';
 		foreach (Capsule::table('mod_pvewhmcs_plans')->get() as $vm) {
 			echo '<tr>';
-			echo '<td>' . $vm->id . '</td>';
+			echo '<td>' . (int) $vm->id . '</td>';
 			echo '<td>' . pvewhmcs_e($vm->title) . '</td>';
 			echo '<td>' . pvewhmcs_e($vm->vmtype) . '</td>';
 			echo '<td>' . pvewhmcs_e($vm->ostype) . '</td>';
@@ -830,7 +830,11 @@ function pvewhmcs_output($vars) {
 		save_ip_pool() ;
 	}
 	if ($_GET['action']=='list_ips') {
-		list_ips();
+		$poolId = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+		if ($poolId <= 0) {
+			throw new InvalidArgumentException('Invalid IP pool.');
+		}
+		list_ips($poolId);
 	}
 	echo'
 	</div>
@@ -2346,7 +2350,7 @@ function list_ip_pools() {
 	echo '<table class="datatable"><tr><th>ID</th><th>Pool</th><th>Gateway</th><th>Action</th></tr>';
 	foreach (Capsule::table('mod_pvewhmcs_ip_pools')->get() as $pool) {
 		echo '<tr>';
-		echo '<td>' . $pool->id . '</td>';
+		echo '<td>' . (int) $pool->id . '</td>';
 		echo '<td>' . pvewhmcs_e($pool->title) . '</td>';
 		echo '<td>' . pvewhmcs_e($pool->gateway) . '</td>';
 		echo '<td>
@@ -2569,9 +2573,14 @@ function add_ip_2_pool() {
 }
 
 // IP POOL FORM: List IPs in Pool
-function list_ips() {
-    // Determine the WHMCS Admin Directory URL for the link
-    $adminUrl = 'clientsservices.php'; 
+function list_ips($poolId) {
+    $poolId = (int) $poolId;
+    if ($poolId <= 0) {
+        throw new InvalidArgumentException('Invalid IP pool.');
+    }
+
+    // Determine the WHMCS Admin Directory URL for the link.
+    $adminUrl = 'clientsservices.php';
 
     echo '<table class="datatable">
             <tr>
@@ -2580,34 +2589,41 @@ function list_ips() {
                 <th>Action</th>
             </tr>';
 
-    // Loop through IPs in the pool
-    foreach (Capsule::table('mod_pvewhmcs_ip_addresses')->where('pool_id', '=', $_GET['id'])->get() as $ip) {
-        
-        // Query tblhosting to see if this IP is currently "occupied"
-        // Occupied = assigned to a service that is Active, Suspended, or Completed
+    // Loop through IPs in the validated pool. Every DB-derived value is
+    // escaped/cast at its output context so imported or tampered rows cannot
+    // become executable HTML in the WHMCS admin area.
+    foreach (Capsule::table('mod_pvewhmcs_ip_addresses')->where('pool_id', '=', $poolId)->get() as $ip) {
+        $ipAddress = (string) $ip->ipaddress;
+        $mask = (string) $ip->mask;
+
         $service = Capsule::table('tblhosting')
-            ->where('dedicatedip', '=', $ip->ipaddress)
+            ->where('dedicatedip', '=', $ipAddress)
             ->whereIn('domainstatus', ['Active', 'Suspended', 'Completed'])
             ->first();
 
         echo '<tr>
-                <td>' . $ip->ipaddress . '</td>
-                <td>' . $ip->mask . '</td>
+                <td>' . pvewhmcs_e($ipAddress) . '</td>
+                <td>' . pvewhmcs_e($mask) . '</td>
                 <td>';
 
         if ($service) {
-            // IP is in use: Create a link to the related service
-            $serviceLink = $adminUrl . '?userid=' . $service->userid . '&id=' . $service->id;
-            echo 'In use: <a href="' . $serviceLink . '" target="_blank">Service #' . $service->id . '</a>';
+            $serviceId = (int) $service->id;
+            $serviceUserId = (int) $service->userid;
+            $serviceLink = $adminUrl
+                . '?userid=' . rawurlencode((string) $serviceUserId)
+                . '&id=' . rawurlencode((string) $serviceId);
+
+            echo 'In use: <a href="' . pvewhmcs_e($serviceLink)
+                . '" target="_blank" rel="noopener noreferrer">Service #'
+                . $serviceId . '</a>';
         } else {
-            // IP is free (not in tblhosting OR status is Terminated/Cancelled/Fraud/Pending)
             echo pvewhmcs_admin_delete_form(
                 'removeip',
                 (int) $ip->id,
                 array('pool_id' => (int) $ip->pool_id)
             );
         }
-        
+
         echo '</td></tr>';
     }
     echo '</table>';
