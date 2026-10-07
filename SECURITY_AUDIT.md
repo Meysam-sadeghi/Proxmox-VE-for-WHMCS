@@ -656,7 +656,7 @@ The local ticket check now expires PVE login sessions when `time() >= login_tick
 ### Fix commit / verification
 
 - Commit: `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`
-- Verification: code path reviewed; test young and artificially expired tickets in integration before marking VERIFIED.
+- Verification: security CI now behaviorally injects a young ticket and an artificially expired ticket through Reflection. It requires the young ticket to remain valid and the expired ticket to return false while clearing both cached ticket and timestamp. Live PVE session behavior can still be confirmed in staging before changing the tracker status to VERIFIED.
 
 ## SEC-014 — Legacy custom SHA1/MD5/XOR encryption helper remains in source
 
