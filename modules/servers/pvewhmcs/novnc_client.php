@@ -11,6 +11,8 @@
 $rootDir = dirname(__DIR__, 3);
 require_once $rootDir . '/init.php';
 
+use Illuminate\Database\Capsule\Manager as Capsule;
+
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Referrer-Policy: no-referrer');
@@ -60,6 +62,7 @@ if ($sessionClientId <= 0 || $sessionClientId !== (int) $entry['userid']) {
     pvewhmcs_novnc_client_fail('Client authentication does not match this console session.');
 }
 
+$serviceId = isset($entry['serviceid']) ? (int) $entry['serviceid'] : 0;
 $host = (string) $entry['host'];
 $port = (int) $entry['port'];
 $node = (string) $entry['node'];
@@ -67,6 +70,54 @@ $vtype = (string) $entry['vtype'];
 $vmid = (int) $entry['vmid'];
 $proxyPort = (int) $entry['proxy_port'];
 $vncTicket = (string) $entry['vnc_ticket'];
+
+if ($serviceId <= 0) {
+    pvewhmcs_novnc_client_fail('Invalid console service state.');
+}
+
+// Revalidate the service, guest mapping, and assigned PVE server at the final
+// handoff. A service may be suspended/terminated/reassigned in the short window
+// between router authorization and this one-time client page.
+$service = Capsule::table('tblhosting')
+    ->where('id', '=', $serviceId)
+    ->where('userid', '=', $sessionClientId)
+    ->first();
+
+if (!$service || (string) $service->domainstatus !== 'Active') {
+    pvewhmcs_novnc_client_fail('This service is no longer eligible for console access.');
+}
+
+$guest = Capsule::table('mod_pvewhmcs_vms')
+    ->where('id', '=', $serviceId)
+    ->where('user_id', '=', $sessionClientId)
+    ->first();
+
+if (
+    !$guest
+    || (int) $guest->vmid !== $vmid
+    || (string) $guest->vtype !== $vtype
+) {
+    pvewhmcs_novnc_client_fail('Console guest mapping changed. Open a new console session.');
+}
+
+$server = Capsule::table('tblservers')
+    ->where('id', '=', (int) $service->server)
+    ->where('type', '=', 'pvewhmcs')
+    ->where('disabled', '=', 0)
+    ->first();
+
+if (!$server) {
+    pvewhmcs_novnc_client_fail('The assigned Proxmox server is unavailable.');
+}
+
+$expectedHost = !empty($server->hostname)
+    ? (string) $server->hostname
+    : (string) $server->ipaddress;
+$expectedPort = !empty($server->port) ? (int) $server->port : 8006;
+
+if (strcasecmp($expectedHost, $host) !== 0 || $expectedPort !== $port) {
+    pvewhmcs_novnc_client_fail('Console server assignment changed. Open a new console session.');
+}
 
 if (
     $host === ''
