@@ -164,6 +164,10 @@ jobs:
           ! grep -InE "action=(removeplan|removeippool|removeip)" modules/addons/pvewhmcs/pvewhmcs.php
           grep -Fq "check_token();" modules/addons/pvewhmcs/pvewhmcs.php
           grep -Fq "pvewhmcs_delete_action" modules/addons/pvewhmcs/pvewhmcs.php
+          ! grep -Fq -- "->where('id', \$_GET['id'])" modules/addons/pvewhmcs/pvewhmcs.php
+          grep -Fq "function update_qemu_plan(\$id)" modules/addons/pvewhmcs/pvewhmcs.php
+          grep -Fq "function update_lxc_plan(\$id)" modules/addons/pvewhmcs/pvewhmcs.php
+          test "$(grep -Fc 'name="plan_id"' modules/addons/pvewhmcs/pvewhmcs.php)" -ge 2
 
       - name: Keep VNC secret encrypted and masked
         shell: bash
