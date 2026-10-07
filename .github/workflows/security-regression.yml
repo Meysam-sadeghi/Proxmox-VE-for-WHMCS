@@ -603,6 +603,43 @@ jobs:
       - name: JavaScript syntax check for patched noVNC decoder
         run: node --check modules/servers/pvewhmcs/novnc/core/decoders/zrle.js
 
+      - name: Reject dangerous first-party PHP execution primitives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(
+            find modules/addons/pvewhmcs modules/servers/pvewhmcs               -type f -name '*.php'               ! -path '*/novnc/*'               -print
+          )
+
+          if grep -nEH -- '(^|[^A-Za-z0-9_])(exec|shell_exec|system|passthru|proc_open|popen|eval|assert|unserialize|base64_decode)[[:space:]]*\(' "${files[@]}"; then
+            echo "Dangerous execution/deserialization primitive found in first-party PHP."
+            exit 1
+          fi
+
+      - name: Reject obvious committed secrets in first-party code
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(
+            find modules/addons/pvewhmcs modules/servers/pvewhmcs               -type f               \( -name '*.php' -o -name '*.tpl' -o -name '*.js' -o -name '*.json' \)               ! -path '*/novnc/*'               -print
+          )
+
+          patterns=(
+            '-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'
+            'AKIA[0-9A-Z]{16}'
+            'gh[pousr]_[A-Za-z0-9]{30,}'
+            'github_pat_[A-Za-z0-9_]{50,}'
+            'xox[baprs]-[A-Za-z0-9-]{20,}'
+            'sk_live_[0-9A-Za-z]{16,}'
+          )
+
+          for pattern in "${patterns[@]}"; do
+            if grep -nEH -- "$pattern" "${files[@]}"; then
+              echo "Potential committed secret detected."
+              exit 1
+            fi
+          done
+
       - name: Behaviorally validate admin plan inputs
         shell: bash
         run: |
