@@ -231,11 +231,8 @@ function pvewhmcs_encrypt_secret($plaintext)
 }
 
 /**
- * Decrypt an encrypted module secret.
- *
- * Legacy plaintext values are accepted temporarily so existing installations
- * can migrate without losing console access. Callers may persist the encrypted
- * replacement returned by pvewhmcs_get_vnc_secret().
+ * Decrypt a module secret only from the explicit WHMCS-encrypted storage
+ * format. Plaintext is never accepted by the normal decryption path.
  */
 function pvewhmcs_decrypt_secret($stored)
 {
@@ -246,10 +243,14 @@ function pvewhmcs_decrypt_secret($stored)
     }
 
     if (strpos($stored, 'enc:') !== 0) {
-        return $stored;
+        throw new RuntimeException('Refusing to use an unencrypted module secret.');
     }
 
     $ciphertext = substr($stored, 4);
+    if ($ciphertext === '') {
+        throw new RuntimeException('Encrypted module secret payload is empty.');
+    }
+
     $result = localAPI('DecryptPassword', array(
         'password2' => $ciphertext,
     ));
@@ -258,6 +259,7 @@ function pvewhmcs_decrypt_secret($stored)
         !is_array($result)
         || !isset($result['result'], $result['password'])
         || $result['result'] !== 'success'
+        || $result['password'] === ''
     ) {
         throw new RuntimeException('WHMCS failed to decrypt the module secret.');
     }
@@ -266,8 +268,11 @@ function pvewhmcs_decrypt_secret($stored)
 }
 
 /**
- * Return the VNC secret, automatically migrating legacy plaintext storage to
- * WHMCS-encrypted storage on first successful read.
+ * Return the VNC secret.
+ *
+ * Legacy plaintext is accepted only as migration input. It must first be
+ * encrypted, transactionally persisted and read back exactly before the
+ * operational secret is obtained by decrypting the persisted ciphertext.
  */
 function pvewhmcs_get_vnc_secret()
 {
@@ -281,10 +286,13 @@ function pvewhmcs_get_vnc_secret()
         return '';
     }
 
-    $plaintext = pvewhmcs_decrypt_secret($stored);
+    if (strpos($stored, 'enc:') !== 0) {
+        $legacyPlaintext = $stored;
+        if ($legacyPlaintext === '') {
+            return '';
+        }
 
-    if (strpos($stored, 'enc:') !== 0 && $plaintext !== '') {
-        $encrypted = pvewhmcs_encrypt_secret($plaintext);
+        $encrypted = pvewhmcs_encrypt_secret($legacyPlaintext);
 
         Capsule::connection()->transaction(function ($connection) use ($encrypted) {
             $connection->table('mod_pvewhmcs')
@@ -295,13 +303,26 @@ function pvewhmcs_get_vnc_secret()
                 ->where('id', '=', 1)
                 ->value('vnc_secret');
 
-            if (!hash_equals($encrypted, $persisted)) {
+            if (
+                strpos($persisted, 'enc:') !== 0
+                || !hash_equals($encrypted, $persisted)
+            ) {
                 throw new RuntimeException('Encrypted VNC secret failed persistence integrity verification.');
             }
         });
+
+        // Do not return the legacy plaintext directly. From this point onward
+        // the operational path is identical to a normal encrypted read.
+        $stored = (string) Capsule::table('mod_pvewhmcs')
+            ->where('id', '=', 1)
+            ->value('vnc_secret');
+
+        if (strpos($stored, 'enc:') !== 0) {
+            throw new RuntimeException('VNC secret migration did not produce encrypted storage.');
+        }
     }
 
-    return $plaintext;
+    return pvewhmcs_decrypt_secret($stored);
 }
 
 /**
