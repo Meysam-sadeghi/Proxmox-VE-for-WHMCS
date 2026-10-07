@@ -923,6 +923,93 @@ jobs:
               raise SystemExit("PVE-backed ClientArea code is not covered by a Throwable error boundary")
           PY
 
+      - name: Enforce CSRF-protected client power actions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          import pathlib, re
+
+          src = pathlib.Path("modules/servers/pvewhmcs/pvewhmcs.php").read_text()
+          tpl = pathlib.Path("modules/servers/pvewhmcs/clientarea.tpl").read_text()
+
+          buttons = re.search(
+              r"function pvewhmcs_ClientAreaCustomButtonArray\(\) \{(.*?)(?=\nfunction |\Z)",
+              src,
+              re.S,
+          )
+          if not buttons:
+              raise SystemExit("ClientAreaCustomButtonArray missing")
+
+          for unsafe in ("vmStart", "vmReboot", "vmShutdown", "vmStop"):
+              if f'=> "{unsafe}"' in buttons.group(1):
+                  raise SystemExit(f"state-changing client button {unsafe} bypasses explicit CSRF form")
+
+          required_allowed = ("clientVmStart", "clientVmReboot", "clientVmShutdown", "clientVmStop")
+          allowed = re.search(
+              r"function pvewhmcs_ClientAreaAllowedFunctions\(\) \{(.*?)(?=\nfunction |\Z)",
+              src,
+              re.S,
+          )
+          if not allowed or any(name not in allowed.group(1) for name in required_allowed):
+              raise SystemExit("CSRF-protected client power functions are not allowlisted")
+
+          if "function pvewhmcs_require_client_power_csrf" not in src:
+              raise SystemExit("client power CSRF helper missing")
+          if "check_token();" not in src:
+              raise SystemExit("WHMCS CSRF validation call missing")
+
+          for action in required_allowed:
+              if f'name="a" value="{action}"' not in tpl:
+                  raise SystemExit(f"missing client power form for {action}")
+
+          if tpl.count('name="token" value="{$token|escape:') < 4:
+              raise SystemExit("client power forms do not all carry escaped WHMCS CSRF tokens")
+          if tpl.count('<form method="post" action="clientarea.php?action=productdetails">') < 4:
+              raise SystemExit("client power actions are not all POST forms")
+          PY
+
+          php <<'PHP'
+          <?php
+          namespace Illuminate\Database\Capsule {
+              class Manager {}
+          }
+
+          namespace {
+              $GLOBALS['tokenChecks'] = 0;
+
+              function check_token() {
+                  $GLOBALS['tokenChecks']++;
+              }
+
+              function logModuleCall() {}
+
+              chdir('modules/servers/pvewhmcs');
+              define('ROOTDIR', realpath('../../..'));
+              require 'pvewhmcs.php';
+
+              $_SERVER['REQUEST_METHOD'] = 'POST';
+              pvewhmcs_require_client_power_csrf();
+
+              if ($GLOBALS['tokenChecks'] !== 1) {
+                  throw new RuntimeException('POST power action did not invoke WHMCS check_token().');
+              }
+
+              $_SERVER['REQUEST_METHOD'] = 'GET';
+              $failed = false;
+              try {
+                  pvewhmcs_require_client_power_csrf();
+              } catch (RuntimeException $e) {
+                  $failed = strpos($e->getMessage(), 'require POST') !== false;
+              }
+
+              if (!$failed) {
+                  throw new RuntimeException('GET client power action was not rejected.');
+              }
+          }
+          PHP
+
       - name: Enforce power-action ownership validation
         shell: bash
         run: |
