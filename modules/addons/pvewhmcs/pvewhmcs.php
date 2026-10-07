@@ -28,8 +28,9 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 // Define where the module operates in the Admin GUI
 define( 'pvewhmcs_BASEURL', 'addonmodules.php?module=pvewhmcs' );
 
-// DEP: Require the PHP API Class to interact with Proxmox VE
+// DEP: Require the PHP API Class and shared security helpers.
 require_once('proxmox.php');
+require_once('security.php');
 
 // CONFIG: Declare key options to the WHMCS Addon Module framework.
 function pvewhmcs_config() {
@@ -797,8 +798,8 @@ function pvewhmcs_output($vars) {
 			<label style="font-weight:600;color:#333;">VNC Secret</label>
 		</td>
 		<td style="padding:15px 0;border-bottom:1px solid #eee;">
-			<input type="text" style="width:100%;max-width:300px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;" name="vnc_secret" id="vnc_secret" value="' . $config->vnc_secret . '">
-			<p style="margin:8px 0 0 0;font-size:13px;color:#666;">Password for <code style="background:#f4f0f7;padding:2px 6px;border-radius:3px;color:#5c3d7a;">vnc@pve</code> user. Required for VNC proxying. <a href="https://github.com/The-Network-Crew/Proxmox-VE-for-WHMCS/" target="_blank" style="color:#5c3d7a;"><u>View README</u></a></p>
+			<input type="password" autocomplete="new-password" placeholder="' . (pvewhmcs_has_vnc_secret() ? 'Secret configured — leave blank to keep it' : 'Enter VNC secret') . '" style="width:100%;max-width:300px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;" name="vnc_secret" id="vnc_secret" value="">
+			<p style="margin:8px 0 0 0;font-size:13px;color:#666;">Password for <code style="background:#f4f0f7;padding:2px 6px;border-radius:3px;color:#5c3d7a;">vnc@pve</code>. The stored secret is encrypted by WHMCS and is never rendered back into HTML. Leave blank to keep the existing secret.</p>
 		</td>
 	</tr>
 	<tr>
@@ -1084,17 +1085,34 @@ function import_guest() {
 // MODULE CONFIG: Commit changes to the database
 function save_config() {
 	try {
+		$startVmid = isset($_POST['start_vmid']) ? (int) $_POST['start_vmid'] : 100;
+		if ($startVmid < 100 || $startVmid > 999999999) {
+			throw new InvalidArgumentException('VMID Start must be between 100 and 999999999.');
+		}
+
+		$debugMode = !empty($_POST['debug_mode']) ? 1 : 0;
+		$newVncSecret = isset($_POST['vnc_secret']) ? trim((string) $_POST['vnc_secret']) : '';
+
+		$updates = array(
+			'start_vmid' => $startVmid,
+			'debug_mode' => $debugMode,
+		);
+
+		if ($newVncSecret !== '') {
+			if (strlen($newVncSecret) < 15) {
+				throw new InvalidArgumentException('VNC Secret must be at least 15 characters.');
+			}
+			$updates['vnc_secret'] = pvewhmcs_encrypt_secret($newVncSecret);
+		} elseif (pvewhmcs_has_vnc_secret()) {
+			// Reading once transparently migrates legacy plaintext to encrypted storage.
+			pvewhmcs_get_vnc_secret();
+		}
+
 		Capsule::connection()->transaction(
-			function ($connectionManager)
+			function ($connectionManager) use ($updates)
 			{
 				/** @var \Illuminate\Database\Connection $connectionManager */
-				$connectionManager->table('mod_pvewhmcs')->update(
-					[
-						'vnc_secret' => $_POST['vnc_secret'],
-						'start_vmid' => $_POST['start_vmid'],
-						'debug_mode' => $_POST['debug_mode'],
-					]
-				);
+				$connectionManager->table('mod_pvewhmcs')->update($updates);
 			}
 		);
 		$_SESSION['pvewhmcs']['infomsg']['title']='Module Config saved.' ;
