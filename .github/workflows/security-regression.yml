@@ -198,6 +198,15 @@ jobs:
           grep -Fq 'type="password"' modules/addons/pvewhmcs/pvewhmcs.php
           ! grep -InE 'name="vnc_secret"[^>]*value="[^"]+"' modules/addons/pvewhmcs/pvewhmcs.php
 
+      - name: Keep IPv4 CIDR imports bounded
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'if ($prefix < 20)' modules/addons/pvewhmcs/pvewhmcs.php
+          grep -Fq '1 << (32 - $prefix)' modules/addons/pvewhmcs/pvewhmcs.php
+          grep -Fq 'count($rows) > 4096' modules/addons/pvewhmcs/pvewhmcs.php
+          grep -Fq 'array_chunk($rows, 250)' modules/addons/pvewhmcs/pvewhmcs.php
+
       - name: Keep ZRLE CPU bound guard
         shell: bash
         run: |
