@@ -911,6 +911,50 @@ Internal VM/node identifiers, backend error text and PVE response details can re
 
 ---
 
+## SEC-020 — Client power actions did not explicitly revalidate service ownership
+
+**Severity:** HIGH / MEDIUM  
+**Status:** FIXED - NEEDS VERIFICATION  
+**Category:** CWE-862 Missing Authorization  
+**Primary file:** `modules/servers/pvewhmcs/pvewhmcs.php`
+
+### Evidence
+
+The Client Area power actions (Start, Reboot, Power Off and Hard Stop) resolved their target primarily from `$params['serviceid']` and the module guest mapping. Unlike the hardened noVNC/Reinstall flows, they did not independently require that the WHMCS service owner and `mod_pvewhmcs_vms.user_id` match the expected `userid` before connecting to PVE.
+
+WHMCS normally supplies module parameters for the selected service, but privileged backend actions should not rely solely on dispatch-layer assumptions.
+
+### Security impact
+
+If another routing/session bug ever allowed a manipulated service context to reach these functions, the module lacked a second authorization boundary before issuing privileged PVE power commands.
+
+### Remediation applied
+
+- Added centralized `pvewhmcs_authorize_service_action()`.
+- Requires a positive WHMCS service ID and owning user ID.
+- Revalidates `tblhosting.id + tblhosting.userid`.
+- Revalidates `mod_pvewhmcs_vms.id + user_id`.
+- Requires mapped guest type to be `qemu` or `lxc` and VMID to be in the supported range.
+- Start, Reboot, Shutdown and Hard Stop call the authorization helper before decrypting/using PVE credentials or constructing `PVE2_API`.
+- Existing public wrappers convert authorization failures into the SEC-019 generic customer error while retaining redacted server-side diagnostics.
+- Security CI structurally verifies authorization occurs before PVE connection in all four actions.
+- Behavioral CI accepts a valid owner, rejects a cross-user service request, and rejects a mismatched guest-owner mapping.
+
+### Acceptance criteria
+
+- A service owner can operate their correctly mapped guest.
+- A different user ID cannot operate the same service ID.
+- A WHMCS service whose module mapping belongs to another user is rejected.
+- Authorization completes before any PVE API connection or power command.
+- Authorization failures do not expose IDs/backend details to the customer.
+
+### Fix commit / verification
+
+- Commit: pending merge of the SEC-020 hardening branch.
+- Verification: PHP Syntax Check and Security Regression CI must pass. Final staging verification should invoke each power action from the rightful client and verify a crafted/cross-account request cannot operate another service.
+
+---
+
 # Additional hardening observations
 
 These are not currently ranked above the primary findings but should be considered during refactoring:
@@ -919,7 +963,6 @@ These are not currently ranked above the primary findings but should be consider
 - Add explicit HTTP/network timeouts to all PVE calls.
 - Add CSP/security headers for the noVNC surface.
 - Add static analysis (PHPStan/Psalm/Semgrep or equivalent) and secret scanning to CI.
-- Add tests proving a client action can operate only on the WHMCS service mapped to that authenticated client.
 - Keep third-party noVNC pinned to an exact release and re-run hash/vendor review when updating.
 
 ---

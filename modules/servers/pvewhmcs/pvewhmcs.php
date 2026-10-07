@@ -73,6 +73,55 @@ function pvewhmcs_client_safe_error(array $params, $action, $detail = '') {
 
 
 /**
+ * Revalidate WHMCS service ownership and its PVE guest mapping before any
+ * client/admin power action reaches the Proxmox API.
+ */
+function pvewhmcs_authorize_service_action(array $params) {
+	$serviceId = isset($params['serviceid']) ? (int) $params['serviceid'] : 0;
+	$userId = isset($params['userid'])
+		? (int) $params['userid']
+		: (isset($params['clientsdetails']['userid']) ? (int) $params['clientsdetails']['userid'] : 0);
+
+	if ($serviceId <= 0 || $userId <= 0) {
+		throw new RuntimeException('Invalid service authorization context.');
+	}
+
+	$service = Capsule::table('tblhosting')
+		->where('id', '=', $serviceId)
+		->where('userid', '=', $userId)
+		->first();
+
+	if (!$service) {
+		throw new RuntimeException('WHMCS service ownership validation failed.');
+	}
+
+	$guest = Capsule::table('mod_pvewhmcs_vms')
+		->where('id', '=', $serviceId)
+		->where('user_id', '=', $userId)
+		->first();
+
+	if (!$guest) {
+		throw new RuntimeException('PVE guest ownership mapping validation failed.');
+	}
+
+	if (!in_array((string) $guest->vtype, array('qemu', 'lxc'), true)) {
+		throw new RuntimeException('Unsupported mapped guest type.');
+	}
+
+	if ((int) $guest->vmid < 100) {
+		throw new RuntimeException('Invalid mapped VMID.');
+	}
+
+	return array(
+		'service' => $service,
+		'guest' => $guest,
+		'serviceid' => $serviceId,
+		'userid' => $userId,
+	);
+}
+
+
+/**
  * Execute a callback while holding a MySQL advisory lock.
  *
  * Advisory locks serialize only this module's critical allocation sections and
@@ -1328,8 +1377,11 @@ function pvewhmcs_vmStart($params) {
 }
 
 function pvewhmcs_vmStart_internal($params) {
-	// Gather access credentials for PVE, as these are no longer passed for Client Area
-	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
+	$authorized = pvewhmcs_authorize_service_action($params);
+	$pveservice = $authorized['service'];
+	$guest = $authorized['guest'];
+
+	// Gather access credentials for the service-assigned PVE server.
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
 	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
@@ -1342,10 +1394,6 @@ function pvewhmcs_vmStart_internal($params) {
 
 	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport, true, true);
 	if ($proxmox->login()) {
-		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
-		if ($guest === null) {
-			return pvewhmcs_client_safe_error($params, __FUNCTION__, 'Guest mapping was not found for the requested service.');
-		}
 		$guest_node = pvewhmcs_find_guest_node($proxmox, $guest, $params['serviceid']);
 		if (empty($guest_node)) {
 			return pvewhmcs_client_safe_error($params, __FUNCTION__, array('stage' => 'node-resolution', 'vmid' => isset($guest->vmid) ? (int) $guest->vmid : null));
@@ -1392,8 +1440,11 @@ function pvewhmcs_vmReboot($params) {
 }
 
 function pvewhmcs_vmReboot_internal($params) {
-	// Gather access credentials for PVE, as these are no longer passed for Client Area
-	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
+	$authorized = pvewhmcs_authorize_service_action($params);
+	$pveservice = $authorized['service'];
+	$guest = $authorized['guest'];
+
+	// Gather access credentials for the service-assigned PVE server.
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
 	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
@@ -1406,10 +1457,6 @@ function pvewhmcs_vmReboot_internal($params) {
 
 	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport, true, true);
 	if ($proxmox->login()) {
-		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
-		if ($guest === null) {
-			return pvewhmcs_client_safe_error($params, __FUNCTION__, 'Guest mapping was not found for the requested service.');
-		}
 		$guest_node = pvewhmcs_find_guest_node($proxmox, $guest, $params['serviceid']);
 		if (empty($guest_node)) {
 			return pvewhmcs_client_safe_error($params, __FUNCTION__, array('stage' => 'node-resolution', 'vmid' => isset($guest->vmid) ? (int) $guest->vmid : null));
@@ -1466,8 +1513,11 @@ function pvewhmcs_vmShutdown($params) {
 }
 
 function pvewhmcs_vmShutdown_internal($params) {
-	// Gather access credentials for PVE, as these are no longer passed for Client Area
-	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
+	$authorized = pvewhmcs_authorize_service_action($params);
+	$pveservice = $authorized['service'];
+	$guest = $authorized['guest'];
+
+	// Gather access credentials for the service-assigned PVE server.
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
 	
 	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
@@ -1481,10 +1531,6 @@ function pvewhmcs_vmShutdown_internal($params) {
 
 	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport, true, true);
 	if ($proxmox->login()) {
-		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
-		if ($guest === null) {
-			return pvewhmcs_client_safe_error($params, __FUNCTION__, 'Guest mapping was not found for the requested service.');
-		}
 		$guest_node = pvewhmcs_find_guest_node($proxmox, $guest, $params['serviceid']);
 		if (empty($guest_node)) {
 			return pvewhmcs_client_safe_error($params, __FUNCTION__, array('stage' => 'node-resolution', 'vmid' => isset($guest->vmid) ? (int) $guest->vmid : null));
@@ -1533,8 +1579,11 @@ function pvewhmcs_vmStop($params) {
 }
 
 function pvewhmcs_vmStop_internal($params) {
-	// Gather access credentials for PVE, as these are no longer passed for Client Area
-	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
+	$authorized = pvewhmcs_authorize_service_action($params);
+	$pveservice = $authorized['service'];
+	$guest = $authorized['guest'];
+
+	// Gather access credentials for the service-assigned PVE server.
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
 	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
@@ -1547,10 +1596,6 @@ function pvewhmcs_vmStop_internal($params) {
 
 	$proxmox = new PVE2_API($serverip, $serverusername, "pam", $serverpassword['password'], $serverport, true, true);
 	if ($proxmox->login()) {
-		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
-		if ($guest === null) {
-			return pvewhmcs_client_safe_error($params, __FUNCTION__, 'Guest mapping was not found for the requested service.');
-		}
 		$guest_node = pvewhmcs_find_guest_node($proxmox, $guest, $params['serviceid']);
 		if (empty($guest_node)) {
 			return pvewhmcs_client_safe_error($params, __FUNCTION__, array('stage' => 'node-resolution', 'vmid' => isset($guest->vmid) ? (int) $guest->vmid : null));
