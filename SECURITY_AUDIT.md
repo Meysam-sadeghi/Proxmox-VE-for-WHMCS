@@ -567,8 +567,8 @@ An RLE run larger than the remaining tile is rejected before the large inner loo
 ### Remediation applied
 
 - Added the missing `i + length > tileSize` guard to bundled noVNC v1.7.0 `_decodeRLETile()`.
-- Oversized plain-mode RLE runs now throw before the inner pixel loop.
-- A CI regression check requires this bound to remain present.
+- Oversized plain-mode RLE runs throw before the inner pixel loop.
+- Security CI now performs both a source guard check and an executable Node.js regression: a synthetic 4097-pixel run for a 4096-pixel tile must throw, and a proxy-backed tile buffer proves the pixel-write loop is never entered.
 
 ### Vendor note
 
