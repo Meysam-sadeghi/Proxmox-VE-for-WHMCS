@@ -88,10 +88,13 @@ $wsPath = '/api2/json/nodes/' . rawurlencode($node)
 $wsUrl = 'wss://' . $host . ':' . $port . $wsPath;
 
 $cspConnect = 'wss://' . $host . ':' . $port;
+$cspNonce = base64_encode(random_bytes(18));
+$cspNonceAttr = htmlspecialchars($cspNonce, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
 header(
     "Content-Security-Policy: default-src 'none'; "
-    . "script-src 'self' 'unsafe-inline'; "
-    . "style-src 'unsafe-inline'; "
+    . "script-src 'self' 'nonce-" . $cspNonce . "'; "
+    . "style-src 'nonce-" . $cspNonce . "'; "
     . "img-src 'self' data:; "
     . "connect-src " . $cspConnect . "; "
     . "frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
@@ -112,7 +115,7 @@ $jsPassword = json_encode(
     <meta name="referrer" content="no-referrer">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Secure noVNC Console</title>
-    <style>
+    <style nonce="<?php echo $cspNonceAttr; ?>">
         html, body, #screen { width: 100%; height: 100%; margin: 0; background: #111; overflow: hidden; }
         #status { position: fixed; z-index: 10; left: 10px; top: 10px; padding: 7px 10px; color: #fff; background: rgba(0,0,0,.65); border-radius: 4px; font: 13px sans-serif; }
     </style>
@@ -120,7 +123,7 @@ $jsPassword = json_encode(
 <body>
 <div id="status">Connecting…</div>
 <div id="screen"></div>
-<script type="module">
+<script type="module" nonce="<?php echo $cspNonceAttr; ?>">
     import RFB from './novnc/core/rfb.js';
 
     const screen = document.getElementById('screen');
