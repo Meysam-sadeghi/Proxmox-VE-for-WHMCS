@@ -745,7 +745,8 @@ Security-relevant design:
 - Requires Proxmox VE major version 9+ at runtime.
 - Accepts only allowlisted QEMU/LXC template values from the product/template configuration; arbitrary client-supplied VMIDs/volume paths are rejected.
 - QEMU sources must be actual PVE templates and must contain Cloud-Init.
-- Uses a cryptographically random one-time per-service session nonce plus explicit destructive confirmation and the literal confirmation phrase `REINSTALL`.
+- Uses the native WHMCS client-area CSRF token plus a cryptographically random one-time per-service session nonce, explicit destructive confirmation and the literal confirmation phrase `REINSTALL`.
+- Uses a dedicated `reinstall.tpl` custom-action page returned through WHMCS `templatefile + vars`, avoiding theme-dependent raw HTML action output.
 - Uses a per-service MySQL advisory lock against simultaneous reinstall requests.
 - Uses a replacement-first cutover: build new VM/CT under a new VMID before stopping the current guest.
 - Starts the replacement before the WHMCS mapping is switched.
