@@ -2493,18 +2493,10 @@ function add_ip_2_pool() {
 			throw new InvalidArgumentException('Invalid IPv4 CIDR notation.');
 		}
 
-		// Fail closed before constructing/iterating the subnet. /20 is the
-		// largest accepted range (4096 addresses); larger networks are rejected
-		// without invoking the iterator at all.
-		if ($prefix < 20) {
-			throw new InvalidArgumentException(
-				'IPv4 import is limited to 4096 addresses. Use /20 or a smaller range.'
-			);
-		}
-		$addressCount = 1 << (32 - $prefix);
-		if ($addressCount < 1 || $addressCount > 4096) {
-			throw new InvalidArgumentException('IPv4 CIDR size is outside the safe import limit.');
-		}
+		// Fail closed before constructing/iterating the subnet. The pure helper
+		// validates the prefix and rejects any range larger than 4096 addresses
+		// before performing a bit shift or invoking the IPv4 iterator.
+		$addressCount = pvewhmcs_bounded_ipv4_cidr_size($prefix, 4096);
 
 		$subnet = Ipv4_Subnet::fromString($ipBlock);
 		$mask = (string) $subnet->getNetmask();
