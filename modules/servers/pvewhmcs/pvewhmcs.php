@@ -28,6 +28,9 @@ if (file_exists('../modules/addons/pvewhmcs/proxmox.php'))
 else
 	require_once(ROOTDIR . '/modules/addons/pvewhmcs/proxmox.php');
 
+// Client reinstall/rebuild workflow (Proxmox VE 9+)
+require_once(__DIR__ . '/reinstall.php');
+
 // Import SQL Connectivity (WHMCS)
 use Illuminate\Database\Capsule\Manager as Capsule;
 
@@ -1042,6 +1045,7 @@ function pvewhmcs_ClientAreaCustomButtonArray() {
 		"<i class='fa fa-2x fa-chart-bar'></i>  Statistics" => "vmStat",
 		"<i class='fa fa-2x fa-search'></i>  Check Status" => "vmCheck",
 		"<img src='./modules/servers/pvewhmcs/img/novnc.png'/> noVNC (HTML5)" => "noVNC",
+		"<i class='fa fa-refresh'></i> Reinstall OS" => "Reinstall",
 	);
 	return $buttonarray;
 }
