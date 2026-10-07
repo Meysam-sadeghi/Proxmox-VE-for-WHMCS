@@ -528,9 +528,11 @@ Allowed ranges complete within bounded time/query count.
 ### Remediation applied
 
 - Strictly validates pool ID and IPv4/CIDR input.
-- Calculates CIDR size before iteration and rejects more than 4096 addresses (larger than /20).
+- Rejects prefixes larger than /20 **before** constructing or iterating the subnet.
+- Uses bounded integer address-count calculation and a second post-iterator guard so the generated row set can never exceed 4096 entries.
 - Skips pool gateways and existing addresses.
-- Performs bounded batch inserts inside a transaction.
+- Performs bounded 250-row batch inserts inside a transaction.
+- Security CI asserts all import bounds remain present.
 
 ### Fix commit / verification
 
