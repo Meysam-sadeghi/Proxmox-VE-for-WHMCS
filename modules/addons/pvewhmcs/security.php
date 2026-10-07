@@ -76,15 +76,10 @@ function pvewhmcs_secure_log_module_call(
     $safeResponse = pvewhmcs_redact_log_value($response);
     $safeProcessedData = pvewhmcs_redact_log_value($processedData);
 
-    // Also redact explicitly supplied replacement values before handing them
-    // to WHMCS. This prevents an accidental secret from being persisted in the
-    // replacement list itself.
+    // Do not forward caller-supplied replacement values at all. They are often
+    // secrets by definition. The wrapper has already redacted request/response
+    // content recursively, so raw replacement material is unnecessary.
     $safeReplaceVars = array();
-    foreach ($replaceVars as $value) {
-        if (is_scalar($value) || $value === null) {
-            $safeReplaceVars[] = (string) pvewhmcs_redact_log_value((string) $value);
-        }
-    }
 
     logModuleCall(
         $safeModule,
