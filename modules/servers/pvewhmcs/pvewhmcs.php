@@ -120,7 +120,7 @@ function pvewhmcs_CreateAccount($params) {
 	$plan = Capsule::table('mod_pvewhmcs_plans')->where('id', '=', $params['configoption1'])->get()[0];
 
 	// PVE Host - Connection Info
-	$serverip = $params["serverip"];
+	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 	$serverusername = $params["serverusername"];
 	$serverpassword = $params["serverpassword"];
 	$serverport = $params["serverport"];
@@ -638,7 +638,7 @@ function pvewhmcs_find_next_available_vmid($proxmox, $node, $start_vmid) {
 function pvewhmcs_TestConnection(array $params) {
 	try {
 		// Call the service's connection test function
-		$serverip = $params["serverip"];
+		$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 		$serverusername = $params["serverusername"];
 		$serverpassword = $params["serverpassword"];
 		$serverport = $params["serverport"];
@@ -671,7 +671,7 @@ function pvewhmcs_TestConnection(array $params) {
 
 // PVE API FUNCTION, ADMIN: Suspend a Service on the hypervisor
 function pvewhmcs_SuspendAccount(array $params) {
-	$serverip = $params["serverip"];
+	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 	$serverusername = $params["serverusername"];
 	$serverpassword = $params["serverpassword"];
 	$serverport = $params["serverport"];
@@ -713,7 +713,7 @@ function pvewhmcs_SuspendAccount(array $params) {
 
 // PVE API FUNCTION, ADMIN: Unsuspend a Service on the hypervisor
 function pvewhmcs_UnsuspendAccount(array $params) {
-	$serverip = $params["serverip"];
+	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 	$serverusername = $params["serverusername"];
 	$serverpassword = $params["serverpassword"];
 	$serverport = $params["serverport"];
@@ -763,7 +763,7 @@ function pvewhmcs_UnsuspendAccount(array $params) {
 //   4. All checks passed: stop the guest (if running), delete it from PVE,
 //      then remove the DB row.
 function pvewhmcs_TerminateAccount(array $params) {
-	$serverip = $params["serverip"];
+	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 	$serverusername = $params["serverusername"];
 	$serverpassword = $params["serverpassword"];
 	$serverport = $params["serverport"];
@@ -1117,7 +1117,7 @@ function pvewhmcs_ClientArea($params) {
 	$pveserver=Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
 
 	// Get IP and User for Hypervisor
-	$serverip = $pveserver->ipaddress;
+	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
 	// Password access is different in Client Area, so retrieve and decrypt
 	$api_data = array(
@@ -1260,7 +1260,7 @@ function pvewhmcs_noVNC($params) {
 	}
 	
 	// Get server credentials and find guest node (VNC user lacks VM.Audit permission for /cluster/resources)
-	$serverip = $params["serverip"];
+	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 	$serverport = $params["serverport"];
 	$proxmox_server = new PVE2_API($serverip, $params["serverusername"], "pam", $params["serverpassword"], $serverport);
 	if (!$proxmox_server->login()) {
@@ -1311,7 +1311,7 @@ function pvewhmcs_SPICE($params) {
 	}
 	
 	// Get server credentials and find guest node (VNC user lacks VM.Audit permission for /cluster/resources)
-	$serverip = $params["serverip"];
+	$serverip = !empty($params["serverhostname"]) ? $params["serverhostname"] : $params["serverip"];
 	$proxmox_server = new PVE2_API($serverip, $params["serverusername"], "pam", $params["serverpassword"], $params["serverport"]);
 	if (!$proxmox_server->login()) {
 		return 'Failed to prepare SPICE. Unable to connect to server.';
@@ -1357,7 +1357,7 @@ function pvewhmcs_vmStart($params) {
 	// Gather access credentials for PVE, as these are no longer passed for Client Area
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
-	$serverip = $pveserver->ipaddress;
+	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
 
 	$api_data = array(
@@ -1404,7 +1404,7 @@ function pvewhmcs_vmReboot($params) {
 	// Gather access credentials for PVE, as these are no longer passed for Client Area
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
-	$serverip = $pveserver->ipaddress;
+	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
 
 	$api_data = array(
@@ -1462,7 +1462,7 @@ function pvewhmcs_vmShutdown($params) {
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
 	
-	$serverip = $pveserver->ipaddress;
+	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
 
 	$api_data = array(
@@ -1511,7 +1511,7 @@ function pvewhmcs_vmStop($params) {
 	// Gather access credentials for PVE, as these are no longer passed for Client Area
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
-	$serverip = $pveserver->ipaddress;
+	$serverip = !empty($pveserver->hostname) ? $pveserver->hostname : $pveserver->ipaddress;
 	$serverusername = $pveserver->username;
 
 	$api_data = array(
