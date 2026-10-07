@@ -1098,7 +1098,7 @@ function pvewhmcs_Reinstall($params)
         if (function_exists('logActivity')) {
             logActivity(
                 'PVEWHMCS reinstall failed for Service #' . $serviceId
-                . ': ' . substr($e->getMessage(), 0, 500)
+                . ': ' . substr((string) pvewhmcs_redact_log_value($e->getMessage()), 0, 500)
             );
         }
 
