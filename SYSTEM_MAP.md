@@ -414,7 +414,7 @@ Key invariants that future changes must preserve:
 4. **Console URLs carry opaque nonces only.** PVE/VNC tickets, host, port, node and WebSocket path are server-side state.
 5. **Console authorization is server-side and repeated at handoff.** Revalidate authenticated client, Active service, guest mapping and assigned server before obtaining a PVE ticket and again before rendering the one-time noVNC client. Bootstrap/runtime nonce pools are short-lived, single-use and capped.
 6. **PVE console cookie is short-lived and non-scriptable.** Keep `Secure`, `HttpOnly`, `SameSite=Strict`, short expiry and narrow path.
-7. **Addon mutations are POST + WHMCS CSRF token only.** Do not add state-changing GET routes.
+7. **Addon mutations are POST + WHMCS CSRF token only.** Mutation targets must come from validated POST fields, never query-string IDs; do not add state-changing GET routes.
 8. **Dynamic admin/client output is contextually escaped.**
 9. **`vnc_secret` is WHMCS-encrypted and never rendered back to HTML.**
 10. **CIDR import is bounded to 4096 addresses and validated before enumeration.**
