@@ -215,3 +215,41 @@ jobs:
 
       - name: JavaScript syntax check for patched noVNC decoder
         run: node --check modules/servers/pvewhmcs/novnc/core/decoders/zrle.js
+
+      - name: Execute ZRLE oversized-run regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import ZRLEDecoder from './modules/servers/pvewhmcs/novnc/core/decoders/zrle.js';
+
+          const decoder = new ZRLEDecoder();
+          let pixelLoopReached = false;
+
+          decoder._readPixels = () => new Uint8Array([1, 2, 3, 255]);
+          decoder._readRLELength = () => 4097;
+
+          // If the guard is absent, writes to the tile buffer will begin.
+          decoder._tileBuffer = new Proxy(new Uint8Array(64 * 64 * 4), {
+            set(target, property, value) {
+              pixelLoopReached = true;
+              target[property] = value;
+              return true;
+            }
+          });
+
+          let threw = false;
+          try {
+            decoder._decodeRLETile(4096);
+          } catch (error) {
+            threw = /Too big rle length in plain mode/.test(String(error?.message));
+          }
+
+          if (!threw) {
+            throw new Error('Oversized ZRLE run was not rejected');
+          }
+          if (pixelLoopReached) {
+            throw new Error('ZRLE pixel loop started before rejecting oversized run');
+          }
+          NODE
+
