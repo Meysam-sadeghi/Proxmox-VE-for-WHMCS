@@ -28,6 +28,24 @@ jobs:
           ! grep -RIn --include='*.php' 'CURLOPT_SSL_VERIFYHOST, false' modules/addons/pvewhmcs modules/servers/pvewhmcs
           grep -Fq '$verify_ssl = true' modules/addons/pvewhmcs/proxmox.php
 
+      - name: Verify TLS disable attempts fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          php -r '
+            require "modules/addons/pvewhmcs/proxmox.php";
+            try {
+                new PVE2_API("localhost", "whmcs@pve!provisioning", "pve", "test-secret", 8006, false);
+                fwrite(STDERR, "verify_ssl=false was accepted\n");
+                exit(1);
+            } catch (PVE2_Exception $e) {
+                if (strpos($e->getMessage(), "cannot be disabled") === false) {
+                    fwrite(STDERR, "unexpected exception: " . $e->getMessage() . "\n");
+                    exit(1);
+                }
+            }
+          '
+
       - name: Require root credential prohibition
         shell: bash
         run: |
