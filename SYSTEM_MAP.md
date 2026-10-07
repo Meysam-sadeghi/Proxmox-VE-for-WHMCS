@@ -45,11 +45,12 @@ Read these files, in this order:
 4. `modules/servers/pvewhmcs/reinstall.php` — Proxmox VE 9+ client reinstall/rebuild workflow.
 5. `modules/addons/pvewhmcs/pvewhmcs.php` — WHMCS admin addon UI/config/plans/IP pools/import.
 6. `modules/addons/pvewhmcs/proxmox.php` — Proxmox API transport/client.
-7. `modules/servers/pvewhmcs/novnc_router.php` — console ticket/cookie routing.
-8. `modules/addons/pvewhmcs/db.sql` — module data model.
-9. `modules/servers/pvewhmcs/clientarea.tpl` — client-facing VM UI.
-10. `README.md` — deployment requirements and expected PVE/WHMCS setup.
-11. `SECURITY.md` — upstream disclosure policy.
+7. `modules/servers/pvewhmcs/novnc_router.php` — POST-only console bootstrap/direct noVNC renderer.
+8. `modules/servers/pvewhmcs/novnc_cookie_clear.php` — one-time post-handshake PVEAuthCookie cleanup endpoint.
+9. `modules/addons/pvewhmcs/db.sql` — module data model.
+10. `modules/servers/pvewhmcs/clientarea.tpl` — client-facing VM UI.
+11. `README.md` — deployment requirements and expected PVE/WHMCS setup.
+12. `SECURITY.md` — upstream disclosure policy.
 
 If HEAD differs from the reviewed commit, first compare the new HEAD against:
 `7ff41ccecde7e1d846860e3b24208129ee8fdd42`.
@@ -75,8 +76,10 @@ flowchart LR
     Client --> NoVNCAction[pvewhmcs_noVNC]
     NoVNCAction --> Router[novnc_router.php\nWHMCS auth + ownership]
     Router --> PVE
-    Router --> BrowserNoVNC[novnc_client.php\none-time runtime nonce]
-    BrowserNoVNC -->|Restricted WSS destination| PVE
+    Router -->|CSP-pinned noVNC page| Client
+    Client -->|Restricted WSS destination| PVE
+    Client --> CookieClear[novnc_cookie_clear.php\none-time post-connect cleanup]
+    CookieClear --> DB
 
     ServerModule --> Template[clientarea.tpl]
     Template --> Client
@@ -411,7 +414,7 @@ Key invariants that future changes must preserve:
 3. **No secrets or raw PVE payloads in logs/Smarty context.** All first-party WHMCS logging must pass through `pvewhmcs_secure_log_module_call()`; direct `logModuleCall()` use is CI-blocked. Never log raw `$params`, credentials, tickets, cluster resource/task dumps, or unredacted exception/API payloads. Use shared redaction + bounded response summaries.
 4. **Console URLs carry no console credentials or nonce.** The bootstrap nonce is POST-body-only; PVE/VNC tickets, host, port, node, VMID and WebSocket path are server-side state.
 5. **Console authorization is server-side and repeated in one request.** Revalidate authenticated client, Active service, guest mapping and assigned server before obtaining PVE/VNC tickets and again immediately before rendering noVNC. Bootstrap nonces are short-lived, single-use and capped.
-6. **PVE console cookie is short-lived and non-scriptable.** Keep `Secure`, `HttpOnly`, `SameSite=Strict`, short expiry and narrow path.
+6. **PVE console cookie is handshake-only and non-scriptable.** Keep `Secure`, `HttpOnly`, `SameSite=Strict`, `/api2/json/` scope, a 60-second fallback expiry, and the one-time post-connect cleanup path that immediately expires it.
 7. **Addon mutations are POST + WHMCS CSRF token only.** Mutation targets must come from validated POST fields, never query-string IDs; do not add state-changing GET routes.
 8. **Dynamic admin/client output is contextually escaped and CI-guarded.** Bare Smarty interpolation in client templates and direct rendering of historically vulnerable stored admin values must fail security regression checks.
 9. **`vnc_secret` is WHMCS-encrypted, integrity-checked, stored in non-truncating TEXT storage, and never rendered back to HTML.** Legacy plaintext migration is transactional and verified after persistence.

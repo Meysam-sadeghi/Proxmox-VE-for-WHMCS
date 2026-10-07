@@ -319,13 +319,50 @@ try {
     ));
 
     setrawcookie('PVEAuthCookie', (string) $pveTicket, array(
-        'expires' => time() + 120,
+        'expires' => time() + 60,
         'path' => '/api2/json/',
         'domain' => $cookieDomain,
         'secure' => true,
         'httponly' => true,
         'samesite' => 'Strict',
     ));
+
+    // Prepare a one-time same-origin cookie-clear token. Once the WebSocket
+    // handshake succeeds, the browser calls the clear endpoint and the broad
+    // parent-domain PVEAuthCookie is expired immediately rather than waiting
+    // for its short fallback TTL.
+    if (!isset($_SESSION['pvewhmcs_console_clear'])) {
+        $_SESSION['pvewhmcs_console_clear'] = array();
+    }
+
+    $clearNow = time();
+    foreach ($_SESSION['pvewhmcs_console_clear'] as $key => $clearEntry) {
+        if (
+            !is_array($clearEntry)
+            || empty($clearEntry['expires'])
+            || (int) $clearEntry['expires'] < $clearNow
+        ) {
+            unset($_SESSION['pvewhmcs_console_clear'][$key]);
+        }
+    }
+
+    while (count($_SESSION['pvewhmcs_console_clear']) >= 5) {
+        reset($_SESSION['pvewhmcs_console_clear']);
+        $oldestClearKey = key($_SESSION['pvewhmcs_console_clear']);
+        if ($oldestClearKey === null) {
+            break;
+        }
+        unset($_SESSION['pvewhmcs_console_clear'][$oldestClearKey]);
+    }
+
+    $clearNonce = bin2hex(random_bytes(32));
+    $_SESSION['pvewhmcs_console_clear'][$clearNonce] = array(
+        'userid' => $clientId,
+        'serviceid' => $serviceId,
+        'cookie_domain' => $cookieDomain,
+        'created' => $clearNow,
+        'expires' => $clearNow + 60,
+    );
 
     $wsPath = '/api2/json/nodes/' . rawurlencode($guestNode)
         . '/' . rawurlencode($guestType)
@@ -343,7 +380,7 @@ try {
         . "script-src 'self' 'nonce-" . $cspNonce . "'; "
         . "style-src 'nonce-" . $cspNonce . "'; "
         . "img-src 'self' data:; "
-        . "connect-src " . $cspConnect . "; "
+        . "connect-src 'self' " . $cspConnect . "; "
         . "frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
     );
 
@@ -354,6 +391,10 @@ try {
     $jsPassword = json_encode(
         $vncTicket,
         JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES
+    );
+    $jsClearNonce = json_encode(
+        $clearNonce,
+        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
     );
 ?><!doctype html>
 <html lang="en">
@@ -384,6 +425,19 @@ try {
 
     rfb.addEventListener('connect', () => {
         status.textContent = 'Connected';
+
+        // The PVEAuthCookie is only needed for the WebSocket handshake.
+        // Expire it immediately after a successful connection; the 60-second
+        // cookie TTL remains only as a fallback if this request cannot run.
+        fetch('./novnc_cookie_clear.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            cache: 'no-store',
+            keepalive: true,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+            body: new URLSearchParams({ session: <?php echo $jsClearNonce; ?> }).toString()
+        }).catch(() => {});
+
         window.setTimeout(() => status.remove(), 1500);
     });
 
