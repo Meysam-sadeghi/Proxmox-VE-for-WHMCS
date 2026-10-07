@@ -15,6 +15,7 @@ All notable changes to Proxmox VE for WHMCS will be documented in this file.
 - QEMU/LXC plan configuration now uses centralized enum, identifier and numeric range validation before persistence.
 - Concurrent provisioning now serializes per-service, per-IP-pool and VMID allocation critical sections to prevent duplicate reservations.
 - Client power/Reinstall failure messages no longer expose PVE response, VMID, node or exception internals.
+- Power actions revalidate WHMCS service ownership and guest mapping before any PVE API access.
 
 ### 🗄️ Schema
 - Widen `mod_pvewhmcs_plans.cpuunits` to unsigned INT so the documented range up to 500000 is stored safely.
