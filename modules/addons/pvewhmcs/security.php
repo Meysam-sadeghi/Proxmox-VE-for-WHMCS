@@ -10,6 +10,28 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 
 
 /**
+ * Validate a release-version string received from an external update source.
+ *
+ * Returns a normalized semantic-looking version string or null. External
+ * update responses are never trusted as executable/configuration content.
+ */
+function pvewhmcs_validate_release_version($value)
+{
+    $value = trim((string) $value);
+
+    if (
+        $value === ''
+        || strlen($value) > 64
+        || !preg_match('/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9._-]+)?$/', $value)
+    ) {
+        return null;
+    }
+
+    return $value;
+}
+
+
+/**
  * Recursively redact secrets before any value is written to WHMCS/PHP logs.
  *
  * This is defense-in-depth: callers should still avoid logging raw request
