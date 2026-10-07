@@ -307,6 +307,98 @@ jobs:
           grep -Fq "function update_lxc_plan(\$id)" modules/addons/pvewhmcs/pvewhmcs.php
           test "$(grep -Fc 'name="plan_id"' modules/addons/pvewhmcs/pvewhmcs.php)" -ge 2
 
+      - name: Structurally verify addon POST CSRF coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          path = Path("modules/addons/pvewhmcs/pvewhmcs.php")
+          source = path.read_text(encoding="utf-8")
+
+          # Every HTML POST form emitted by the addon must contain the helper
+          # that injects the WHMCS admin CSRF token.
+          forms = re.findall(
+              r'<form\\b[^>]*method=["\\\']post["\\\'][^>]*>.*?</form>',
+              source,
+              flags=re.IGNORECASE | re.DOTALL,
+          )
+          if len(forms) < 9:
+              raise SystemExit(f"expected at least 9 addon POST forms, found {len(forms)}")
+
+          missing = [
+              index + 1
+              for index, form in enumerate(forms)
+              if "pvewhmcs_admin_csrf_input()" not in form
+          ]
+          if missing:
+              raise SystemExit(f"POST forms missing CSRF helper: {missing}")
+
+          # pvewhmcs_output must fail closed for every POST before dispatch.
+          required = [
+              "$_SERVER['REQUEST_METHOD'] === 'POST'",
+              "function_exists('check_token')",
+              "check_token();",
+          ]
+          for token in required:
+              if token not in source:
+                  raise SystemExit(f"missing global POST CSRF guard: {token}")
+
+          # Mutation functions must never choose their target from the query
+          # string. Read-only navigation may use GET, but writes must use
+          # validated arguments/POST state.
+          mutation_functions = [
+              "import_guest",
+              "save_config",
+              "save_qemu_plan",
+              "update_qemu_plan",
+              "save_lxc_plan",
+              "update_lxc_plan",
+              "save_ip_pool",
+              "add_ip_2_pool",
+              "remove_plan",
+              "removeIpPool",
+              "removeip",
+          ]
+
+          def function_body(name: str) -> str:
+              match = re.search(rf'function\\s+{re.escape(name)}\\s*\\([^)]*\\)\\s*\\{{', source)
+              if not match:
+                  raise SystemExit(f"mutation function not found: {name}")
+              start = match.end()
+              depth = 1
+              i = start
+              in_single = in_double = escaped = False
+              while i < len(source):
+                  ch = source[i]
+                  if escaped:
+                      escaped = False
+                  elif ch == "\\\\":
+                      escaped = True
+                  elif ch == "'" and not in_double:
+                      in_single = not in_single
+                  elif ch == '"' and not in_single:
+                      in_double = not in_double
+                  elif not in_single and not in_double:
+                      if ch == "{":
+                          depth += 1
+                      elif ch == "}":
+                          depth -= 1
+                          if depth == 0:
+                              return source[start:i]
+                  i += 1
+              raise SystemExit(f"unterminated function: {name}")
+
+          for name in mutation_functions:
+              body = function_body(name)
+              if "$_GET[" in body:
+                  raise SystemExit(f"mutation function {name} reads target/state from $_GET")
+
+          print(f"validated {len(forms)} CSRF-protected POST forms and {len(mutation_functions)} mutation functions")
+          PY
+
       - name: Keep client and stored admin output escaped
         shell: bash
         run: |
