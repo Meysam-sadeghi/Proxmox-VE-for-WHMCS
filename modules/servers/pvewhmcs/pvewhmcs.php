@@ -1132,11 +1132,31 @@ function pvewhmcs_fetch_rrd_stat($proxmox, $node, $vtype, $vmid, $timeframe, $ds
 
 // OUTPUT: Module output to the Client Area
 function pvewhmcs_ClientArea($params) {
-	// Retrieve virtual machine info from table mod_pvewhmcs_vms
-	$guest=Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->get()[0] ;
-	
-	// Gather access credentials for PVE, as these are no longer passed for Client Area
-	$pveservice=Capsule::table('tblhosting')->find($params['serviceid']) ;
+	try {
+		$authorized = pvewhmcs_authorize_service_action($params);
+		$guest = $authorized['guest'];
+		$pveservice = $authorized['service'];
+	} catch (\Throwable $e) {
+		pvewhmcs_secure_log_module_call(
+			'pvewhmcs',
+			__FUNCTION__,
+			pvewhmcs_safe_log_context($params),
+			pvewhmcs_redact_log_value($e->getMessage())
+		);
+
+		return array(
+			'templatefile' => 'clientarea',
+			'vars' => array(
+				'client_error' => 'Unable to load this server. Please contact support if the problem continues.',
+				'vm_config' => array(),
+				'vm_status' => array(),
+				'vm_statistics' => array(),
+				'vm_vncproxy' => null,
+			),
+		);
+	}
+
+	// Gather access credentials for the already-authorized service's PVE server.
 	$pveserver=Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
 
 	// Get IP and User for Hypervisor
