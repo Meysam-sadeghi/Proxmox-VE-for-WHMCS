@@ -73,10 +73,10 @@ flowchart LR
     APIClient --> PVE[Proxmox VE API :8006]
 
     Client --> NoVNCAction[pvewhmcs_noVNC]
-    NoVNCAction --> PVE
-    NoVNCAction --> Router[novnc_router.php]
-    Router --> BrowserNoVNC[Bundled noVNC v1.7.0]
-    BrowserNoVNC -->|WebSocket| PVE
+    NoVNCAction --> Router[novnc_router.php\nWHMCS auth + ownership]
+    Router --> PVE
+    Router --> BrowserNoVNC[novnc_client.php\none-time runtime nonce]
+    BrowserNoVNC -->|Restricted WSS destination| PVE
 
     ServerModule --> Template[clientarea.tpl]
     Template --> Client
@@ -91,7 +91,7 @@ flowchart LR
 5. **WHMCS admin users ↔ addon configuration**
 6. **Vendored third-party noVNC ↔ first-party routing code**
 
-A compromise across boundary #3 is especially serious because the documented deployment uses a privileged PVE account for normal API work.
+Boundary #3 remains security-critical. The hardened deployment requires a dedicated least-privilege PVE identity/API token and explicitly rejects `root@pam` and root-backed tokens.
 
 ---
 
@@ -129,7 +129,8 @@ Path: `modules/servers/pvewhmcs/`
 - `pvewhmcs.php` — **core service lifecycle/provisioning/client actions**; loads the reinstall module and registers the `Reinstall OS` custom client action.
 - `reinstall.php` — **Proxmox VE 9+ destructive reinstall/rebuild workflow**, including allowlisted OS selection, ownership/CSRF/confirmation checks, locking, replacement-first cutover, rollback, password regeneration, and mapping update.
 - `clientarea.tpl` — client area UI for status/specs/statistics.
-- `novnc_router.php` — standalone console router/cookie setter.
+- `novnc_router.php` — authenticated, one-time server-side console bootstrap.
+- `novnc_client.php` — minimal one-time noVNC browser client with pinned CSP/WSS destination.
 - `whmcs.json` — WHMCS module metadata.
 - `js/CircularLoader.js` — client gauge UI.
 - `img/*` — VM/OS/status icons.
@@ -460,14 +461,16 @@ When changing:
 
 When this repository changes:
 
-1. Read this file.
-2. Get current HEAD SHA.
-3. The original full-repository security baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`.
-4. Post-audit runtime changes for Reinstall/PVE9 transport were reviewed through `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f`. If current HEAD differs from that source baseline, compare from `8eed834f63e57cb5ac7a636b5d25c1a7b27de40f` first; then inspect changed files and callers.
-5. Re-evaluate trust boundaries for any new endpoint, hook, API call, database table, secret, or client-visible value.
-6. If noVNC version changes, re-run a vendor hash comparison against the exact upstream release/tag.
-7. Update this document's snapshot, flows, file/function map, data model, and security hotspots in the same PR/commit as architectural changes.
-8. Never assume this file overrides source code; it is an index and handoff. Source + current diff remain authoritative.
+1. Read this file and `SECURITY_AUDIT.md` first.
+2. Get the current HEAD SHA.
+3. The original full-repository audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`.
+4. The security-hardened source baseline containing the remediations for SEC-001 through SEC-016 is merge commit `d4b61805d5d566220ebcf3bbd8239a78ca5a3651` (PR #2).
+5. If current HEAD is newer, compare it against `d4b61805d5d566220ebcf3bbd8239a78ca5a3651`; inspect changed source files plus their direct callers. Do not re-read the entire repository unless the diff changes architecture/trust boundaries or the task explicitly requires a new full audit.
+6. Re-evaluate trust boundaries for any new endpoint, hook, API call, database table, secret, or client-visible value.
+7. If noVNC version changes, compare the vendor tree against the exact upstream release while preserving or replacing the local SEC-011 ZRLE guard with an equivalent upstream fix.
+8. Keep PHP Syntax Check and Security Regression Checks green.
+9. Update this document and `SECURITY_AUDIT.md` in the same change as architecture/security changes.
+10. Never assume this file overrides source code; it is an index and handoff. Source + current diff remain authoritative.
 
 ---
 
