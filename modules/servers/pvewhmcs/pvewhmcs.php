@@ -56,6 +56,106 @@ function pvewhmcs_safe_log_context(array $params) {
 	);
 }
 
+/**
+ * Execute a callback while holding a MySQL advisory lock.
+ *
+ * Advisory locks serialize only this module's critical allocation sections and
+ * are released in finally even when provisioning throws.
+ */
+function pvewhmcs_with_advisory_lock($resource, $timeoutSeconds, callable $callback) {
+	$lockName = 'pvewhmcs_' . substr(hash('sha256', (string) $resource), 0, 48);
+	$rows = Capsule::select('SELECT GET_LOCK(?, ?) AS acquired', array(
+		$lockName,
+		max(0, (int) $timeoutSeconds),
+	));
+
+	if (empty($rows) || (int) $rows[0]->acquired !== 1) {
+		throw new RuntimeException('Another provisioning operation is already using this resource. Please retry shortly.');
+	}
+
+	try {
+		return $callback();
+	} finally {
+		try {
+			Capsule::select('SELECT RELEASE_LOCK(?) AS released', array($lockName));
+		} catch (\Throwable $e) {
+			// MySQL also releases advisory locks when the DB connection closes.
+		}
+	}
+}
+
+/**
+ * Atomically reserve one address from a module IPv4 pool.
+ *
+ * Existing service reservations are reused on retry when still valid.
+ */
+function pvewhmcs_reserve_pool_ip($poolId, $serviceId) {
+	$poolId = (int) $poolId;
+	$serviceId = (int) $serviceId;
+
+	if ($poolId <= 0 || $serviceId <= 0) {
+		throw new InvalidArgumentException('Invalid IP allocation context.');
+	}
+
+	return pvewhmcs_with_advisory_lock('ip_pool:' . $poolId, 15, function () use ($poolId, $serviceId) {
+		$service = Capsule::table('tblhosting')->where('id', '=', $serviceId)->first();
+		if (!$service) {
+			throw new RuntimeException('Unable to find the WHMCS service during IP allocation.');
+		}
+
+		$currentIp = trim((string) $service->dedicatedip);
+		if ($currentIp !== '') {
+			$current = Capsule::table('mod_pvewhmcs_ip_addresses as i')
+				->join('mod_pvewhmcs_ip_pools as p', 'i.pool_id', '=', 'p.id')
+				->where('i.pool_id', '=', $poolId)
+				->where('i.ipaddress', '=', $currentIp)
+				->select('i.ipaddress', 'i.mask', 'p.gateway')
+				->first();
+
+			$usedByAnother = Capsule::table('tblhosting')
+				->where('id', '!=', $serviceId)
+				->whereIn('domainstatus', array('Active', 'Suspended', 'Completed', 'Pending'))
+				->where('dedicatedip', '=', $currentIp)
+				->exists();
+
+			if ($current && !$usedByAnother) {
+				return $current;
+			}
+		}
+
+		$result = Capsule::select(
+			'SELECT i.ipaddress, i.mask, p.gateway
+			 FROM mod_pvewhmcs_ip_addresses i
+			 INNER JOIN mod_pvewhmcs_ip_pools p ON (i.pool_id = p.id AND p.id = :pool_id)
+			 WHERE i.ipaddress NOT IN (
+				SELECT dedicatedip
+				FROM tblhosting
+				WHERE domainstatus IN ("Active", "Suspended", "Completed", "Pending")
+				AND dedicatedip != ""
+			 )
+			 ORDER BY i.id ASC
+			 LIMIT 1',
+			array('pool_id' => $poolId)
+		);
+
+		if (empty($result)) {
+			throw new RuntimeException('No free IP addresses available in the selected pool.');
+		}
+
+		$ip = $result[0];
+		$updated = Capsule::table('tblhosting')
+			->where('id', '=', $serviceId)
+			->update(array('dedicatedip' => $ip->ipaddress));
+
+		if ($updated < 0) {
+			throw new RuntimeException('Unable to reserve the selected IP address.');
+		}
+
+		return $ip;
+	});
+}
+
+
 // Fix the Server Test showing "Pvewhmcs" instead of pretty name
 // ref: https://developers.whmcs.com/provisioning-modules/meta-data-params/
 function pvewhmcs_MetaData() {
@@ -127,6 +227,22 @@ function pvewhmcs_ConfigOptions() {
 //
 // PVE API FUNCTION: Create the Service on the Hypervisor
 function pvewhmcs_CreateAccount($params) {
+	$serviceId = isset($params['serviceid']) ? (int) $params['serviceid'] : 0;
+	if ($serviceId <= 0) {
+		throw new InvalidArgumentException('Invalid WHMCS service ID.');
+	}
+
+	return pvewhmcs_with_advisory_lock('service:' . $serviceId, 5, function () use ($params, $serviceId) {
+		if (Capsule::table('mod_pvewhmcs_vms')->where('id', '=', $serviceId)->exists()) {
+			// Treat a repeated WHMCS create call as idempotent once mapping exists.
+			return true;
+		}
+
+		return pvewhmcs_CreateAccount_locked($params);
+	});
+}
+
+function pvewhmcs_CreateAccount_locked($params) {
 	// Make sure "WHMCS Admin > Products/Services > Proxmox-based Service -> Plan + Pool" are set. Else, fail early. (Issue #36)
 	if (!isset($params['configoption1'], $params['configoption2'])) {
 		throw new Exception("PVEWHMCS Error: Missing Config. Service/Product WHMCS Config not saved (Plan/Pool not assigned to WHMCS Service type). Check Support/Health tab in Module Config for info. Quick and easy fix.");
@@ -150,31 +266,9 @@ function pvewhmcs_CreateAccount($params) {
 	// Prepare the service config array
 	$vm_settings = array();
 
-	// Select an IP Address from Pool
-	$result = Capsule::select(
-    'SELECT i.ipaddress, i.mask, p.gateway 
-     FROM mod_pvewhmcs_ip_addresses i 
-     INNER JOIN mod_pvewhmcs_ip_pools p ON (i.pool_id = p.id AND p.id = :pool_id) 
-     WHERE i.ipaddress NOT IN (
-        SELECT dedicatedip 
-        FROM tblhosting 
-        WHERE domainstatus IN ("Active", "Suspended", "Completed", "Pending")
-        AND dedicatedip != ""
-     ) 
-     LIMIT 1',
-    ['pool_id' => $params['configoption2']]
-	);
+	// Atomically reserve an IP address from the selected pool.
+	$ip = pvewhmcs_reserve_pool_ip($params['configoption2'], $params['serviceid']);
 
-	// Check if we actually found an IP before trying to access index [0]
-	if (!empty($result)) {
-		$ip = $result[0];
-		// Reserve early to avoid concurrent selection during long clones
-		Capsule::table('tblhosting')
-			->where('id', $params['serviceid'])
-			->update(['dedicatedip' => $ip->ipaddress]);
-	} else {
-		throw new Exception("No free IP addresses available in the selected pool.");
-	}
 	// Get the starting VMID from the config options
 	$vmid = Capsule::table('mod_pvewhmcs')->where('id', '1')->value('start_vmid');
 
