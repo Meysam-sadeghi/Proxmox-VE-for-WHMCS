@@ -307,10 +307,11 @@ Cross-client and cross-service replay tests fail safely.
 
 ### Remediation applied
 
-- `novnc_router.php` now boots WHMCS and requires an authenticated client session.
-- It consumes a one-time nonce before privileged work.
+- `novnc_router.php` boots WHMCS and requires an authenticated client session.
+- It consumes the first-stage nonce before privileged work.
 - Service ownership, Active status, module guest mapping and user ID are revalidated from the WHMCS database.
-- The nonce is client/service bound and expires after about one minute.
+- The nonce is client/service bound, expires after about one minute, and outstanding nonce pools are bounded.
+- `novnc_client.php` performs a second authorization check immediately before rendering: client/service ownership, Active state, VMID/type mapping and current assigned PVE host/port must still match the server-side runtime session.
 
 ### Fix commit / verification
 
