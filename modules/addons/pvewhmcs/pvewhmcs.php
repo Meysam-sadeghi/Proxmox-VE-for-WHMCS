@@ -155,7 +155,7 @@ function pvewhmcs_validate_qemu_plan_input() {
 		),
 		'cores' => pvewhmcs_plan_int('cores', 1, 65535),
 		'cpulimit' => pvewhmcs_plan_int('cpulimit', 0, 65535),
-		'cpuunits' => pvewhmcs_plan_int('cpuunits', 0, 65535),
+		'cpuunits' => pvewhmcs_plan_int('cpuunits', 0, 500000),
 		'memory' => $memory,
 		'balloon' => $balloon,
 		'disk' => pvewhmcs_plan_int('disk', 1, 2147483647),
@@ -196,7 +196,7 @@ function pvewhmcs_validate_lxc_plan_input() {
 		'vmtype' => 'lxc',
 		'cores' => pvewhmcs_plan_int('cores', 1, 65535),
 		'cpulimit' => pvewhmcs_plan_int('cpulimit', 0, 65535),
-		'cpuunits' => pvewhmcs_plan_int('cpuunits', 0, 65535),
+		'cpuunits' => pvewhmcs_plan_int('cpuunits', 0, 500000),
 		'memory' => pvewhmcs_plan_int('memory', 16, 2147483647),
 		'swap' => pvewhmcs_plan_int('swap', 0, 2147483647, true) ?? 0,
 		'disk' => pvewhmcs_plan_int('disk', 1, 2147483647),
@@ -243,7 +243,7 @@ function pvewhmcs_config() {
 
 // VERSION: also stored in repo/version (for update-available checker)
 function pvewhmcs_version(){
-	return "1.3.5";
+	return "1.3.6";
 }
 
 // WHMCS MODULE: ACTIVATION of the ADDON MODULE
@@ -319,6 +319,24 @@ function pvewhmcs_upgrade($vars) {
 			$schema->table('mod_pvewhmcs_plans', function ($table) {
 				$table->integer('unpriv')->default(0)->after('balloon');
 			});
+		}
+	}
+
+	// Security/input-validation schema update for v1.3.6.
+	if (version_compare($currentlyInstalledVersion, '1.3.6', 'lt')) {
+		try {
+			Capsule::schema()->table('mod_pvewhmcs_plans', function ($table) {
+				$table->integer('cpuunits')->unsigned()->nullable()->change();
+			});
+		} catch (\Throwable $e) {
+			if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
+				pvewhmcs_secure_log_module_call(
+					'pvewhmcs',
+					__FUNCTION__,
+					'Attempting v1.3.6 database upgrade failed.',
+					pvewhmcs_redact_log_value($e->getMessage())
+				);
+			}
 		}
 	}
 
