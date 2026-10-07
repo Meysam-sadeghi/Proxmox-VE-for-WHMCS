@@ -994,6 +994,52 @@ If a routing/context weakness elsewhere ever supplied another service ID to this
 
 ---
 
+## SEC-022 — Initial provisioning trusted template/ISO/node custom fields as PVE targets
+
+**Severity:** HIGH / MEDIUM  
+**Status:** FIXED - NEEDS VERIFICATION  
+**Category:** CWE-20 Improper Input Validation / CWE-862 Missing Authorization of Target Resource  
+**Primary file:** `modules/servers/pvewhmcs/pvewhmcs.php`
+
+### Evidence
+
+Initial provisioning consumed `KVMTemplate`, `Template`, `ISO`, `TPL_Node_QEMU` and `TPL_Node_LXC` values from WHMCS custom fields and used them in PVE API paths or guest settings. Reinstall had a product-option allowlist, but CreateAccount did not enforce the same boundary.
+
+Examples included using the submitted QEMU template ID inside the clone endpoint, using the LXC template value as `ostemplate`, concatenating the ISO value into a PVE volume string, and accepting node overrides without verifying cluster membership.
+
+### Security impact
+
+A manipulated custom-field value could attempt to select an unintended PVE template/image/node or inject malformed target syntax into a privileged provisioning operation. WHMCS normally constrains dropdown fields, but the backend must not treat browser/form state as authorization to target arbitrary PVE resources.
+
+### Remediation applied
+
+- Added `pvewhmcs_provisioning_allowlisted_field()` to require target values to exist in the specific product's configured Select Options.
+- `KVMTemplate` must be allowlisted and a valid numeric PVE VMID.
+- LXC `Template` must be allowlisted and match the expected `STORAGE:vztmpl/FILENAME` format.
+- `ISO` must be allowlisted and normalize to either `local:iso/filename.iso` or an explicit validated `STORAGE:iso/filename.iso` volume.
+- Path traversal, commas and other unsupported ISO syntax are rejected.
+- QEMU/LXC node overrides must match a strict node-name format and are subsequently checked against the authenticated cluster's actual node list.
+- CreateAccount validates/normalizes all provisioning targets before building PVE paths/settings.
+- QEMU clone paths and LXC/ISO settings now use only normalized values.
+- README now requires Select/Dropdown allowlists for provisioning target fields.
+- Security CI behaviorally tests valid configured targets plus unallowlisted VMIDs/templates, unsafe ISO paths and malformed node names.
+
+### Acceptance criteria
+
+- A configured Select Option provisions normally.
+- A submitted QEMU template VMID not configured for the product is rejected.
+- A submitted LXC template not configured for the product is rejected.
+- An ISO outside the product allowlist or with unsafe path/parameter syntax is rejected.
+- A node override not present in the PVE cluster is rejected before create/clone submission.
+- PVE paths/settings are built from normalized values rather than raw custom-field values.
+
+### Fix commit / verification
+
+- Commit: pending merge of the SEC-022 hardening branch.
+- Verification: PHP Syntax Check and Security Regression CI must pass. Staging should provision one allowlisted QEMU clone, one ISO-based QEMU and one LXC service, then confirm tampered custom-field requests are rejected.
+
+---
+
 # Additional hardening observations
 
 These are not currently ranked above the primary findings but should be considered during refactoring:
