@@ -166,7 +166,9 @@ try {
         'vnc',
         'pve',
         $vncSecret,
-        $apiPort
+        $apiPort,
+        true,
+        false
     );
 
     if (!$consoleApi->login()) {
