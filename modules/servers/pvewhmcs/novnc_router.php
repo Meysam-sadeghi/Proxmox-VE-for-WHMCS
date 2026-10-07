@@ -99,9 +99,13 @@ if (!$server) {
 $apiHost = !empty($server->hostname) ? (string) $server->hostname : (string) $server->ipaddress;
 $apiPort = !empty($server->port) ? (int) $server->port : 8006;
 
-if ($apiHost === '' || filter_var($apiHost, FILTER_VALIDATE_IP)) {
+if (
+    $apiHost === ''
+    || filter_var($apiHost, FILTER_VALIDATE_IP)
+    || !filter_var($apiHost, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)
+) {
     pvewhmcs_console_fail(
-        'Secure console requires the WHMCS server entry to use a DNS hostname with a valid TLS certificate.'
+        'Secure console requires a valid DNS hostname covered by a trusted TLS certificate.'
     );
 }
 
@@ -232,6 +236,25 @@ try {
         $_SESSION['pvewhmcs_console_runtime'] = array();
     }
 
+    $runtimeNow = time();
+    foreach ($_SESSION['pvewhmcs_console_runtime'] as $key => $runtimeEntry) {
+        if (
+            !is_array($runtimeEntry)
+            || empty($runtimeEntry['expires'])
+            || (int) $runtimeEntry['expires'] < $runtimeNow
+        ) {
+            unset($_SESSION['pvewhmcs_console_runtime'][$key]);
+        }
+    }
+    while (count($_SESSION['pvewhmcs_console_runtime']) >= 5) {
+        reset($_SESSION['pvewhmcs_console_runtime']);
+        $oldestRuntimeKey = key($_SESSION['pvewhmcs_console_runtime']);
+        if ($oldestRuntimeKey === null) {
+            break;
+        }
+        unset($_SESSION['pvewhmcs_console_runtime'][$oldestRuntimeKey]);
+    }
+
     $_SESSION['pvewhmcs_console_runtime'][$runtimeNonce] = array(
         'userid' => $clientId,
         'serviceid' => $serviceId,
@@ -242,7 +265,8 @@ try {
         'vmid' => (int) $guest->vmid,
         'proxy_port' => (int) $proxy['port'],
         'vnc_ticket' => (string) $proxy['ticket'],
-        'expires' => time() + 60,
+        'created' => $runtimeNow,
+        'expires' => $runtimeNow + 60,
     );
 
     header(

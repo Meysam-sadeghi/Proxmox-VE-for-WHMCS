@@ -262,10 +262,12 @@ Redesign console bootstrap so raw PVE/VNC tickets are not exposed in browser-vis
 
 ### Remediation applied
 
-- The customer-facing console URL now carries only a random one-time session nonce.
+- The customer-facing console URL carries only a random one-time session nonce.
 - PVE authentication ticket, VNC ticket, destination host, port and path are generated/resolved server-side after authorization.
 - Console endpoints send `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
 - A second short-lived one-time nonce transfers authorized runtime state to the minimal noVNC page.
+- Outstanding bootstrap/runtime nonce pools are pruned and capped to prevent client-session storage growth.
+- The final noVNC handoff revalidates Active service ownership, guest VMID/type mapping, and assigned PVE host/port before exposing runtime state.
 
 ### Fix commit / verification
 
@@ -305,10 +307,11 @@ Cross-client and cross-service replay tests fail safely.
 
 ### Remediation applied
 
-- `novnc_router.php` now boots WHMCS and requires an authenticated client session.
-- It consumes a one-time nonce before privileged work.
+- `novnc_router.php` boots WHMCS and requires an authenticated client session.
+- It consumes the first-stage nonce before privileged work.
 - Service ownership, Active status, module guest mapping and user ID are revalidated from the WHMCS database.
-- The nonce is client/service bound and expires after about one minute.
+- The nonce is client/service bound, expires after about one minute, and outstanding nonce pools are bounded.
+- `novnc_client.php` performs a second authorization check immediately before rendering: client/service ownership, Active state, VMID/type mapping and current assigned PVE host/port must still match the server-side runtime session.
 
 ### Fix commit / verification
 
