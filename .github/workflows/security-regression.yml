@@ -252,8 +252,8 @@ jobs:
 
           # Router must reject non-POST requests and accept no console state
           # from query-string input.
-          grep -Fq "$_SERVER['REQUEST_METHOD'] !== 'POST'" modules/servers/pvewhmcs/novnc_router.php
-          grep -Fq "$_POST['session']" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "\$_SERVER['REQUEST_METHOD'] !== 'POST'" modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq "\$_POST['session']" modules/servers/pvewhmcs/novnc_router.php
           ! grep -Fq '$_GET[' modules/servers/pvewhmcs/novnc_router.php
           ! grep -InE '\$_(POST|REQUEST)\[(.host.|.port.|.path.|.pveticket.|.vncticket.|.vmid.|.node.)\]'             modules/servers/pvewhmcs/novnc_router.php
 
