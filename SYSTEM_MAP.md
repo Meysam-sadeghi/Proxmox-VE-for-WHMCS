@@ -133,7 +133,7 @@ Path: `modules/servers/pvewhmcs/`
 - `whmcs.json` — WHMCS module metadata.
 - `js/CircularLoader.js` — client gauge UI.
 - `img/*` — VM/OS/status icons.
-- `novnc/*` — upstream noVNC v1.7.0 vendor tree; 208 bundled files.
+- `novnc/*` — noVNC v1.7.0 vendor tree; 207 files remain upstream-identical and `core/decoders/zrle.js` intentionally carries the local SEC-011 RLE-length security guard.
 
 ---
 
@@ -207,20 +207,26 @@ Class: `PVE2_API`
 
 Responsibilities:
 
-- Login to `/api2/json/access/ticket`.
-- Retain PVE authentication ticket + CSRF token in memory.
+- Supports dedicated PVE API-token authentication using WHMCS Server Username `user@realm!tokenid` and Server Password = token secret.
+- Password/session login remains supported for non-root restricted identities, but `root@pam` and root-backed tokens are prohibited.
+- API-token requests use the `PVEAPIToken` Authorization header and do not create PVE login/CSRF tickets.
+- Login-ticket mode retains PVE ticket + CSRF token only in memory and expires local tickets correctly at two hours.
 - Send GET/POST/PUT/DELETE requests.
 - Parse HTTP status/body using libcurl response metadata rather than assuming an `HTTP/1.1` status line, improving compatibility with PVE 9 / HTTP/2-capable transports.
-- Login and subsequent API calls now consistently honor the class `verify_ssl` flag; the historical default is still `false`, so SEC-001 remains open until secure verification becomes the default.
-- PVE login ticket age is now expired correctly at two hours rather than using the former reversed comparison.
+- TLS peer verification is enabled by default and hostname verification uses mode 2; callers prefer the configured certificate-valid PVE hostname.
 - Discover nodes/guests.
 - Wrapper operations for start/stop/shutdown/resume/suspend/clone/snapshot/version.
 
-### D. noVNC router — `modules/servers/pvewhmcs/novnc_router.php`
+### D. secure noVNC bootstrap
 
-Receives PVE/noVNC ticket data from query parameters, sets `PVEAuthCookie` for the parent domain, and redirects the browser into bundled noVNC with host/port/password/path parameters.
+Files:
 
-This file is independently web-accessible and is security-sensitive.
+- `modules/servers/pvewhmcs/novnc_router.php` — authenticated server-side console bootstrap.
+- `modules/servers/pvewhmcs/novnc_client.php` — minimal one-time noVNC browser page.
+
+The customer-facing URL contains only a random one-time nonce. The router boots WHMCS, revalidates the logged-in client, Active service ownership and service-to-guest mapping, resolves the assigned PVE server and guest node server-side, then obtains restricted `vnc@pve` tickets. Host/port/path/tickets are not accepted from browser input.
+
+The router creates a short-lived `Secure`, `HttpOnly`, `SameSite=Strict`, `/api2/json/`-scoped PVE cookie and a second one-time runtime nonce. The client page consumes that nonce, applies a CSP whose `connect-src` is the single resolved PVE WSS origin, and opens the direct PVE WebSocket. SPICE is disabled in this module because the old route shared the insecure ticket-in-URL design.
 
 ---
 
@@ -353,24 +359,27 @@ sequenceDiagram
 sequenceDiagram
     participant C as WHMCS Client
     participant M as pvewhmcs_noVNC()
-    participant P as Proxmox API
     participant R as novnc_router.php
-    participant N as noVNC Browser Client
+    participant D as WHMCS DB/Session
+    participant P as Proxmox VE
+    participant N as novnc_client.php
 
-    C->>M: Invoke service action
-    M->>P: Login with normal PVE API credentials
-    M->>P: Resolve guest node
-    M->>P: Login as restricted vnc@pve
-    M->>P: POST /vncproxy
-    P-->>M: PVE ticket + VNC ticket + port
-    M-->>C: Link to novnc_router.php with ticket data
-    C->>R: Open router URL
-    R->>C: Set PVEAuthCookie + redirect
-    C->>N: Load bundled vnc.html
-    N->>P: WebSocket /vncwebsocket
+    C->>M: Invoke noVNC action
+    M->>D: Validate client/service mapping
+    M-->>C: URL with opaque 60s one-time nonce
+    C->>R: GET ?session=<nonce>
+    R->>D: Consume nonce + revalidate login/ownership
+    R->>D: Resolve assigned PVE server
+    R->>P: Authenticate provisioning token; resolve guest node
+    R->>P: Authenticate restricted vnc@pve; POST /vncproxy
+    P-->>R: short-lived PVE/VNC proxy tickets
+    R-->>C: HttpOnly PVE cookie + 303 to second opaque nonce
+    C->>N: GET novnc_client.php?session=<nonce>
+    N->>D: Consume runtime nonce
+    N->>P: WSS only to server-side resolved PVE endpoint
 ```
 
-The README requires a restricted `vnc@pve` user with `VM.Console` permission only. Keep that separation if console support remains enabled.
+Security properties: both nonces are client/service-bound, expire quickly and are single-use; public page URLs contain no PVE/VNC ticket; destination values come only from WHMCS/PVE trusted state; `vnc@pve` remains limited to `VM.Console`.
 
 ---
 
@@ -392,23 +401,28 @@ Never add any of the above to logs, URLs, commits, support screenshots, or excep
 
 ---
 
-## 11. Security-sensitive hotspots discovered in the 2026-10-07 review
+## 11. Security posture after 2026-10-07 hardening
 
-This section is intentionally concise; it is an engineering map, not an exploit guide.
+The authoritative item-by-item tracker is `SECURITY_AUDIT.md`. Source-level remediation has been implemented for SEC-001 through SEC-016; items remain `FIXED - NEEDS VERIFICATION` until live WHMCS + Proxmox VE 9 acceptance tests complete.
 
-1. **TLS verification:** `proxmox.php` defaults certificate verification off and the generic API action path explicitly disables peer/host verification. This is a priority hardening area.
-2. **Privilege level:** documented normal PVE API setup uses a highly privileged account. Reduce to a dedicated least-privilege API identity/token when refactoring.
-3. **Module logging:** some debug/error paths pass full WHMCS `$params` or all custom fields to `logModuleCall`; these structures may contain server and guest passwords. Always use redaction/`replaceVars`.
-4. **Console tickets:** noVNC flow transports bearer-style PVE/VNC tickets through URL parameters; router is standalone and not bound to a one-time WHMCS session nonce.
-5. **Console cookie:** router writes `PVEAuthCookie` across a parent domain with `HttpOnly=false` and `SameSite=None`; sibling-domain/XSS blast radius should be treated as sensitive.
-6. **Admin state changes:** plan/IP deletion is performed through GET actions; addon forms do not visibly implement module-level CSRF tokens. Convert mutations to POST + WHMCS token validation.
-7. **Output encoding:** multiple addon DB values and multiple client template values are rendered without explicit contextual escaping. Apply output encoding consistently.
-8. **VNC secret storage:** `vnc_secret` is stored in module DB and rendered into a normal text input. Treat it as a credential; encrypt/mask it.
-9. **IPv4 range expansion:** `add_ip_2_pool()` enumerates every host from the submitted CIDR with no upper bound. Large ranges can exhaust CPU/time/database resources.
-10. **Legacy crypto:** old SHA1/MD5/XOR-style helper code remains in the provisioning file. It appears dormant in the current active flow and should be removed rather than reused.
-11. **Ticket-age check:** the PVE API client's local ticket-age comparison is logically reversed; fix for correctness even though normal module requests create short-lived objects.
-12. **Bundled noVNC ZRLE decoder:** noVNC upstream issue #2072 reports an unbounded plain-RLE run length causing client-side CPU exhaustion. The bundled v1.7.0 `core/decoders/zrle.js` was checked and contains the reported missing bound; treat this as an applicable availability bug until upstream/fork is patched.
-13. **noVNC destination parameters:** upstream issue #2051 tracks untrusted URL-controlled WebSocket destinations. This module's router also accepts host/port/path inputs and forwards them into noVNC, so destination allowlisting and CSP should be part of the console redesign.
+Key invariants that future changes must preserve:
+
+1. **Verified PVE TLS is default.** Never reintroduce `CURLOPT_SSL_VERIFYPEER=false` / hostname verification bypass.
+2. **No root-backed API credentials.** Provisioning must use a dedicated PVE identity/token; `root@pam` and root-backed tokens are rejected.
+3. **No secrets in module logs or Smarty context.** Never log raw `$params`, passwords, API-token secrets, PVE tickets or VNC tickets.
+4. **Console URLs carry opaque nonces only.** PVE/VNC tickets, host, port, node and WebSocket path are server-side state.
+5. **Console authorization is server-side.** Revalidate authenticated client, Active service, guest mapping and assigned server before obtaining a PVE ticket.
+6. **PVE console cookie is short-lived and non-scriptable.** Keep `Secure`, `HttpOnly`, `SameSite=Strict`, short expiry and narrow path.
+7. **Addon mutations are POST + WHMCS CSRF token only.** Do not add state-changing GET routes.
+8. **Dynamic admin/client output is contextually escaped.**
+9. **`vnc_secret` is WHMCS-encrypted and never rendered back to HTML.**
+10. **CIDR import is bounded to 4096 addresses and validated before enumeration.**
+11. **noVNC ZRLE guard is a deliberate local vendor patch** until an upstream release includes equivalent protection.
+12. **Browser cannot choose the noVNC destination.** CSP `connect-src` remains pinned to the resolved PVE WSS origin.
+13. **Legacy custom crypto must stay removed.**
+14. **Remote update checks remain bounded and format-validated.**
+15. **Security regression CI** must remain green for every module change.
+
 
 ### Negative findings from the static review
 
