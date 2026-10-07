@@ -1052,6 +1052,171 @@ jobs:
           grep -Fq '{if $client_error}' modules/servers/pvewhmcs/clientarea.tpl
           grep -Fq '{$client_error|escape:' modules/servers/pvewhmcs/clientarea.tpl
 
+      - name: Enforce provisioning custom-field allowlists
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -Fq "\$vm_settings['ostemplate'] = \$params['customfields']['Template']" modules/servers/pvewhmcs/pvewhmcs.php
+          ! grep -Fq "'local:iso/' . \$params['customfields']['ISO']" modules/servers/pvewhmcs/pvewhmcs.php
+          grep -Fq "pvewhmcs_provisioning_allowlisted_field" modules/servers/pvewhmcs/pvewhmcs.php
+          grep -Fq "in_array(\$provisioningFields['qemu_node'], \$nodes, true)" modules/servers/pvewhmcs/pvewhmcs.php
+          grep -Fq "in_array(\$provisioningFields['lxc_node'], \$nodes, true)" modules/servers/pvewhmcs/pvewhmcs.php
+
+      - name: Behaviorally verify provisioning field validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          php <<'PHP'
+          <?php
+          namespace Illuminate\Database\Capsule {
+              class Manager {
+                  public static $fields = array();
+
+                  public static function table($name) {
+                      return new \ProvisionFieldFakeQuery($name);
+                  }
+              }
+          }
+
+          namespace {
+              class ProvisionFieldFakeQuery {
+                  private $table;
+                  private $wheres = array();
+
+                  public function __construct($table) {
+                      $this->table = $table;
+                  }
+
+                  public function where($field, $operator = null, $value = null) {
+                      if ($value === null) {
+                          $value = $operator;
+                      }
+                      $this->wheres[$field] = $value;
+                      return $this;
+                  }
+
+                  public function get() {
+                      if ($this->table !== 'tblcustomfields') {
+                          return array();
+                      }
+
+                      return array_values(array_filter(
+                          \Illuminate\Database\Capsule\Manager::$fields,
+                          function ($field) {
+                              if (isset($this->wheres['type']) && $field->type !== $this->wheres['type']) {
+                                  return false;
+                              }
+                              if (isset($this->wheres['relid']) && (int) $field->relid !== (int) $this->wheres['relid']) {
+                                  return false;
+                              }
+                              return true;
+                          }
+                      ));
+                  }
+              }
+
+              chdir('modules/servers/pvewhmcs');
+              define('ROOTDIR', realpath('../../..'));
+              require 'pvewhmcs.php';
+
+              \Illuminate\Database\Capsule\Manager::$fields = array(
+                  (object) array(
+                      'type' => 'product',
+                      'relid' => 10,
+                      'fieldname' => 'KVMTemplate',
+                      'fieldoptions' => '9000|Ubuntu 24.04,9001|Debian 13',
+                  ),
+                  (object) array(
+                      'type' => 'product',
+                      'relid' => 10,
+                      'fieldname' => 'ISO',
+                      'fieldoptions' => 'ubuntu.iso|Ubuntu ISO,local:iso/debian.iso|Debian ISO',
+                  ),
+                  (object) array(
+                      'type' => 'product',
+                      'relid' => 11,
+                      'fieldname' => 'Template',
+                      'fieldoptions' => 'local:vztmpl/ubuntu-24.04-standard_amd64.tar.zst|Ubuntu LXC',
+                  ),
+              );
+
+              $qemu = pvewhmcs_validate_provisioning_fields(array(
+                  'pid' => 10,
+                  'customfields' => array(
+                      'KVMTemplate' => '9000',
+                      'ISO' => 'ubuntu.iso',
+                      'TPL_Node_QEMU' => 'pve-node1',
+                  ),
+              ), 'kvm');
+
+              if ($qemu['kvm_template'] !== '9000'
+                  || $qemu['iso_volume'] !== 'local:iso/ubuntu.iso'
+                  || $qemu['qemu_node'] !== 'pve-node1') {
+                  throw new RuntimeException('Valid QEMU provisioning fields were not normalized correctly.');
+              }
+
+              $lxc = pvewhmcs_validate_provisioning_fields(array(
+                  'pid' => 11,
+                  'customfields' => array(
+                      'Template' => 'local:vztmpl/ubuntu-24.04-standard_amd64.tar.zst',
+                      'TPL_Node_LXC' => 'pve-node2',
+                  ),
+              ), 'lxc');
+
+              if ($lxc['lxc_template'] !== 'local:vztmpl/ubuntu-24.04-standard_amd64.tar.zst') {
+                  throw new RuntimeException('Valid LXC template was not accepted.');
+              }
+
+              $badCases = array(
+                  array(
+                      'pid' => 10,
+                      'customfields' => array('KVMTemplate' => '9999'),
+                      'vmtype' => 'kvm',
+                  ),
+                  array(
+                      'pid' => 10,
+                      'customfields' => array('ISO' => '../../escape.iso'),
+                      'vmtype' => 'kvm',
+                  ),
+                  array(
+                      'pid' => 10,
+                      'customfields' => array('TPL_Node_QEMU' => '../node'),
+                      'vmtype' => 'kvm',
+                  ),
+                  array(
+                      'pid' => 11,
+                      'customfields' => array('Template' => 'local:vztmpl/not-allowlisted.tar.zst'),
+                      'vmtype' => 'lxc',
+                  ),
+              );
+
+              foreach ($badCases as $case) {
+                  $failed = false;
+                  try {
+                      pvewhmcs_validate_provisioning_fields(
+                          array('pid' => $case['pid'], 'customfields' => $case['customfields']),
+                          $case['vmtype']
+                      );
+                  } catch (RuntimeException $e) {
+                      $failed = true;
+                  }
+                  if (!$failed) {
+                      throw new RuntimeException('Unsafe provisioning custom field was accepted.');
+                  }
+              }
+
+              $failed = false;
+              try {
+                  pvewhmcs_normalize_iso_volume('../evil.iso');
+              } catch (RuntimeException $e) {
+                  $failed = true;
+              }
+              if (!$failed) {
+                  throw new RuntimeException('Unsafe ISO path was accepted.');
+              }
+          }
+          PHP
+
       - name: Execute ZRLE oversized-run regression
         shell: bash
         run: |
