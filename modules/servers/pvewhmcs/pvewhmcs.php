@@ -230,7 +230,7 @@ function pvewhmcs_CreateAccount($params) {
 					'pvewhmcs',
 					__FUNCTION__,
 					$logrequest,
-					json_decode($response)
+					pvewhmcs_safe_log_result($response)
 				);
 			}
 
@@ -346,7 +346,7 @@ function pvewhmcs_CreateAccount($params) {
 
 				return true;
 			} else {
-				throw new Exception("Proxmox Error: Failed to initiate clone. Response: " . json_encode($response));
+				throw new Exception("Proxmox Error: Failed to initiate clone. Response: " . json_encode(pvewhmcs_safe_log_result($response)));
 			}
 		} else {
 			throw new Exception("Proxmox Error: PVE API login failed. Please check your credentials.");
@@ -511,7 +511,7 @@ function pvewhmcs_CreateAccount($params) {
 						'pvewhmcs',
 						__FUNCTION__,
 						$logrequest,
-						json_decode($response)
+						pvewhmcs_safe_log_result($response)
 					);
 				}
 
@@ -571,22 +571,23 @@ function pvewhmcs_CreateAccount($params) {
 						->update(['dedicatedip' => $ip->ipaddress]);
 					return true;
 				} else {
-					throw new Exception("Proxmox Error: Failed to initiate creation. Response: " . json_encode($response));
+					throw new Exception("Proxmox Error: Failed to initiate creation. Response: " . json_encode(pvewhmcs_safe_log_result($response)));
 				}
 			} else {
 				throw new Exception("Proxmox Error: PVE API login failed. Please check your credentials.");
 			}
 		} catch (PVE2_Exception $e) {
-			// Record the error in WHMCS's module log.
+			$safeError = pvewhmcs_redact_log_value($e->getMessage());
+			// Record only a redacted error in WHMCS's module log.
 			if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
 				logModuleCall(
 					'pvewhmcs',
 					__FUNCTION__,
 					pvewhmcs_safe_log_context($params),
-					$e->getMessage()
+					$safeError
 				);
 			}
-			return $e->getMessage();
+			return $safeError;
 		}
 		unset($vm_settings);
 	}
@@ -676,16 +677,15 @@ function pvewhmcs_TestConnection(array $params) {
 			$errorMsg = '';
 		}
 	} catch (Exception $e) {
-		// Record the error in WHMCS's module log
+		$safeError = pvewhmcs_redact_log_value($e->getMessage());
 		logModuleCall(
 			'pvewhmcs',
 			__FUNCTION__,
 			pvewhmcs_safe_log_context($params),
-			$e->getMessage()
+			$safeError
 		);
-		// Set the error message as a failure
 		$success = false;
-		$errorMsg = $e->getMessage(); 
+		$errorMsg = $safeError;
 	}
 	// Return success or error, and info
 	return array(
@@ -723,7 +723,7 @@ function pvewhmcs_SuspendAccount(array $params) {
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
-			json_encode($response)
+			json_encode(pvewhmcs_safe_log_result($response))
 		);
 	}
 	// Return success only if no errors returned by PVE
@@ -762,7 +762,7 @@ function pvewhmcs_UnsuspendAccount(array $params) {
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
-			json_encode($response)
+			json_encode(pvewhmcs_safe_log_result($response))
 		);
 	}
 	// Return success only if no errors returned by PVE
@@ -923,7 +923,7 @@ function pvewhmcs_fetch_rrd_stat($proxmox, $node, $vtype, $vmid, $timeframe, $ds
 				'pvewhmcs',
 				'pvewhmcs_fetch_rrd_stat',
 				'RRD fetch failed for ' . $vtype . '/' . $vmid . ' (' . $ds . ', ' . $timeframe . ')',
-				$e->getMessage()
+				pvewhmcs_redact_log_value($e->getMessage())
 			);
 		}
 	}
@@ -1188,7 +1188,7 @@ function pvewhmcs_vmStart($params) {
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
-			json_encode($response)
+			json_encode(pvewhmcs_safe_log_result($response))
 		);
 	}
 	// Return success only if no errors returned by PVE
@@ -1245,7 +1245,7 @@ function pvewhmcs_vmReboot($params) {
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
-			json_encode($response)
+			json_encode(pvewhmcs_safe_log_result($response))
 		);
 	}
 	// Return success only if no errors returned by PVE
@@ -1295,7 +1295,7 @@ function pvewhmcs_vmShutdown($params) {
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
-			json_encode($response)
+			json_encode(pvewhmcs_safe_log_result($response))
 		);
 	}
 	// Return success only if no errors returned by PVE
@@ -1344,7 +1344,7 @@ function pvewhmcs_vmStop($params) {
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
-			json_encode($response)
+			json_encode(pvewhmcs_safe_log_result($response))
 		);
 	}
 	// Return success only if no errors returned by PVE

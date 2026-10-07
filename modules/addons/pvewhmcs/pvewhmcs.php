@@ -196,7 +196,7 @@ function pvewhmcs_upgrade($vars) {
 					'pvewhmcs',
 					__FUNCTION__,
 					'Attempting v1.2.17 database upgrade failed.',
-					$e->getMessage()
+					pvewhmcs_redact_log_value($e->getMessage())
 				);
 			}
 	    }
@@ -271,7 +271,7 @@ function pvewhmcs_addon_fetch_rrd($proxmox, $path, $timeframe, $ds) {
 				'pvewhmcs',
 				'pvewhmcs_addon_fetch_rrd',
 				'RRD fetch failed: ' . $path . ' (' . $ds . ', ' . $timeframe . ')',
-				$e->getMessage()
+				pvewhmcs_redact_log_value($e->getMessage())
 			);
 		}
 	}
@@ -469,7 +469,7 @@ function pvewhmcs_output($vars) {
 					'pvewhmcs',
 					__FUNCTION__,
 					'CLUSTER RESOURCES [' . $serverlabel . ']:',
-					json_encode($cluster_resources)
+					pvewhmcs_safe_log_result($cluster_resources)
 				);
 			}
 
@@ -969,7 +969,7 @@ function pvewhmcs_output($vars) {
 
 	    // Optional debug logging
 	    if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-	        logModuleCall('pvewhmcs', 'ADMIN LOGS: /cluster/tasks', 'limit=' . $limit, json_encode($tasks));
+	        logModuleCall('pvewhmcs', 'ADMIN LOGS: /cluster/tasks', 'limit=' . $limit, pvewhmcs_safe_log_result($tasks));
 	    }
 
 	    if (!is_array($tasks) || empty($tasks)) {

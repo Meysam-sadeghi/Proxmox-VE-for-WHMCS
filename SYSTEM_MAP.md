@@ -410,7 +410,7 @@ Key invariants that future changes must preserve:
 
 1. **Verified PVE TLS is mandatory and fail-closed.** The client rejects attempts to disable certificate validation; never reintroduce `CURLOPT_SSL_VERIFYPEER=false`, `verify_ssl=false`, or hostname-verification bypass.
 2. **Management authentication is API-token-only.** Provisioning, lifecycle, reinstall, addon monitoring and console guest lookup require a dedicated PVE API token; ordinary password login and all root-backed credentials are rejected. The only password-based PVE login is the separate restricted `vnc@pve` console identity.
-3. **No secrets in module logs or Smarty context.** Never log raw `$params`, passwords, API-token secrets, PVE tickets or VNC tickets.
+3. **No secrets or raw PVE payloads in logs/Smarty context.** Never log raw `$params`, credentials, tickets, cluster resource/task dumps, or unredacted exception/API payloads. Use shared redaction + bounded response summaries.
 4. **Console URLs carry opaque nonces only.** PVE/VNC tickets, host, port, node and WebSocket path are server-side state.
 5. **Console authorization is server-side.** Revalidate authenticated client, Active service, guest mapping and assigned server before obtaining a PVE ticket.
 6. **PVE console cookie is short-lived and non-scriptable.** Keep `Secure`, `HttpOnly`, `SameSite=Strict`, short expiry and narrow path.
