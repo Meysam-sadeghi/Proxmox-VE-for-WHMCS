@@ -871,13 +871,52 @@ Concurrent orders could collide on IP or VMID allocation, producing failed provi
 
 ---
 
+## SEC-019 — Client-facing errors disclose internal infrastructure details
+
+**Severity:** MEDIUM  
+**Status:** FIXED - NEEDS VERIFICATION  
+**Category:** CWE-209 Generation of Error Message Containing Sensitive Information  
+**Primary files:** `modules/servers/pvewhmcs/pvewhmcs.php`, `modules/servers/pvewhmcs/reinstall.php`
+
+### Evidence
+
+Several client-visible provisioning-module actions returned internal diagnostic detail directly to the customer, including service IDs, VMIDs, node-resolution failures and raw/serialized PVE error responses. The Reinstall failure page also appended the caught exception message directly to the client response.
+
+### Security impact
+
+Internal VM/node identifiers, backend error text and PVE response details can reveal infrastructure topology and implementation behavior to an authenticated customer. Such information is useful for targeted enumeration and can amplify the impact of another application weakness.
+
+### Remediation applied
+
+- Added a centralized `pvewhmcs_client_safe_error()` helper.
+- Internal diagnostic detail is sent through the existing secret-safe/redacted WHMCS module-log wrapper.
+- Client-visible power actions now return one stable generic failure message.
+- Start, Reboot, Shutdown and Hard Stop are wrapped in `Throwable` handling so unexpected backend exceptions do not leak to the customer.
+- Missing service mapping, VMID/node resolution failures and PVE response errors are no longer rendered with internal identifiers.
+- Reinstall no longer renders `$e->getMessage()`; it returns a generic support-oriented message while the redacted diagnostic path remains server-side.
+- Security CI behaviorally verifies that a synthetic error containing a node name, VMID and password does not appear in the public message and that the password is redacted from the captured log.
+
+### Acceptance criteria
+
+- Client-visible Start/Reboot/Shutdown/Stop failures contain no raw PVE response, node name, VMID, internal API path or exception string.
+- Reinstall failure pages contain no raw caught exception details.
+- Unexpected `Throwable` values do not escape directly into the customer response.
+- Diagnostic detail remains available only through redacted server-side logging.
+- No password/token/ticket value introduced into a diagnostic is written verbatim.
+
+### Fix commit / verification
+
+- Commit: pending merge of the SEC-019 hardening branch.
+- Verification: PHP Syntax Check and Security Regression CI must pass. Staging should exercise failed power actions and a forced Reinstall failure and confirm only generic customer messages are rendered.
+
+---
+
 # Additional hardening observations
 
 These are not currently ranked above the primary findings but should be considered during refactoring:
 
 - Avoid passing the entire WHMCS `$params` structure into Smarty/client templates when only selected values are required.
 - Add explicit HTTP/network timeouts to all PVE calls.
-- Minimize exception details returned to end users.
 - Add CSP/security headers for the noVNC surface.
 - Add static analysis (PHPStan/Psalm/Semgrep or equivalent) and secret scanning to CI.
 - Add tests proving a client action can operate only on the WHMCS service mapped to that authenticated client.

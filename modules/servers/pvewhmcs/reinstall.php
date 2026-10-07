@@ -1148,7 +1148,7 @@ function pvewhmcs_Reinstall($params)
             $params,
             $options,
             'danger',
-            'Reinstall failed: ' . $e->getMessage() . ' No password or API credential was logged by the reinstall feature.'
+            'Reinstall could not be completed. Please try again or contact support if the problem continues.'
         );
     } finally {
         pvewhmcs_reinstall_release_lock($serviceId);

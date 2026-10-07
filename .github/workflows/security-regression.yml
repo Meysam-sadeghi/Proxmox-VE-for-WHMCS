@@ -802,6 +802,61 @@ jobs:
           }
           PHP
 
+      - name: Keep client-facing errors generic
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -Fq "'Reinstall failed: ' . \$e->getMessage()" modules/servers/pvewhmcs/reinstall.php
+          grep -Fq "function pvewhmcs_client_safe_error" modules/servers/pvewhmcs/pvewhmcs.php
+          for fn in vmStart vmReboot vmShutdown vmStop; do
+            grep -Fq "function pvewhmcs_${fn}_internal" modules/servers/pvewhmcs/pvewhmcs.php
+          done
+          php <<'PHP'
+          <?php
+          namespace Illuminate\Database\Capsule {
+              class Manager {}
+          }
+
+          namespace {
+              $GLOBALS['capturedModuleLog'] = null;
+              function logModuleCall($module, $action, $request, $response, $processedData = '', $replaceVars = array()) {
+                  $GLOBALS['capturedModuleLog'] = array(
+                      'module' => $module,
+                      'action' => $action,
+                      'request' => $request,
+                      'response' => $response,
+                  );
+              }
+
+              chdir('modules/servers/pvewhmcs');
+              define('ROOTDIR', realpath('../../..'));
+              require 'pvewhmcs.php';
+
+              $params = array(
+                  'serviceid' => 321,
+                  'userid' => 654,
+                  'pid' => 7,
+                  'serverid' => 8,
+              );
+              $detail = 'PVE node=node-a VMID=999 password=supersecret';
+              $public = pvewhmcs_client_safe_error($params, 'unit-client-action', $detail);
+
+              foreach (array('node-a', '999', 'supersecret', 'password') as $forbidden) {
+                  if (stripos($public, $forbidden) !== false) {
+                      throw new RuntimeException('Public error leaked internal detail: ' . $forbidden);
+                  }
+              }
+
+              $logged = json_encode($GLOBALS['capturedModuleLog']);
+              if (strpos($logged, 'supersecret') !== false) {
+                  throw new RuntimeException('Secure log wrapper failed to redact the test password.');
+              }
+              if (strpos($logged, '[REDACTED]') === false) {
+                  throw new RuntimeException('Expected redaction marker was not present in the secure log.');
+              }
+          }
+          PHP
+
       - name: Execute ZRLE oversized-run regression
         shell: bash
         run: |

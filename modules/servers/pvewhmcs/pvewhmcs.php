@@ -57,6 +57,22 @@ function pvewhmcs_safe_log_context(array $params) {
 }
 
 /**
+ * Record internal client-action failure details server-side while returning a
+ * stable public message that does not disclose VMID/node/API internals.
+ */
+function pvewhmcs_client_safe_error(array $params, $action, $detail = '') {
+	pvewhmcs_secure_log_module_call(
+		'pvewhmcs',
+		(string) $action,
+		pvewhmcs_safe_log_context($params),
+		pvewhmcs_redact_log_value($detail)
+	);
+
+	return 'Unable to complete the requested server action. Please try again or contact support.';
+}
+
+
+/**
  * Execute a callback while holding a MySQL advisory lock.
  *
  * Advisory locks serialize only this module's critical allocation sections and
@@ -1300,6 +1316,18 @@ function pvewhmcs_SPICE($params) {
 
 // PVE API FUNCTION, CLIENT/ADMIN: Start the VM/CT
 function pvewhmcs_vmStart($params) {
+	try {
+		return pvewhmcs_vmStart_internal($params);
+	} catch (\Throwable $e) {
+		return pvewhmcs_client_safe_error(
+			$params,
+			'pvewhmcs_vmStart',
+			$e->getMessage()
+		);
+	}
+}
+
+function pvewhmcs_vmStart_internal($params) {
 	// Gather access credentials for PVE, as these are no longer passed for Client Area
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
@@ -1316,11 +1344,11 @@ function pvewhmcs_vmStart($params) {
 	if ($proxmox->login()) {
 		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
 		if ($guest === null) {
-			return "Error performing action. Unable to find guest linked to Service ID ({$params['serviceid']})";
+			return pvewhmcs_client_safe_error($params, __FUNCTION__, 'Guest mapping was not found for the requested service.');
 		}
 		$guest_node = pvewhmcs_find_guest_node($proxmox, $guest, $params['serviceid']);
 		if (empty($guest_node)) {
-			return "Error performing action. Unable to determine node for VMID {$guest->vmid}.";
+			return pvewhmcs_client_safe_error($params, __FUNCTION__, array('stage' => 'node-resolution', 'vmid' => isset($guest->vmid) ? (int) $guest->vmid : null));
 		}
 		$pve_cmdparam = array();
 		$logrequest = '/nodes/' . $guest_node . '/' . $guest->vtype . '/' . $guest->vmid . '/status/start';
@@ -1339,14 +1367,31 @@ function pvewhmcs_vmStart($params) {
 	if (isset($response) && !isset($response['errors'])) {
 		return "success";
 	} else {
-		// Handle the case where there are errors
-		$response_message = isset($response['errors']) ? json_encode($response['errors']) : "Unknown Error, consider using Debug Mode.";
-		return "Error performing action. " . $response_message;
+		return pvewhmcs_client_safe_error(
+			$params,
+			__FUNCTION__,
+			array(
+				'stage' => 'pve-response',
+				'response' => isset($response) ? pvewhmcs_redact_log_value($response) : 'No response / login failed',
+			)
+		);
 	}
 }
 
 // PVE API FUNCTION, CLIENT/ADMIN: Reboot the VM/CT
 function pvewhmcs_vmReboot($params) {
+	try {
+		return pvewhmcs_vmReboot_internal($params);
+	} catch (\Throwable $e) {
+		return pvewhmcs_client_safe_error(
+			$params,
+			'pvewhmcs_vmReboot',
+			$e->getMessage()
+		);
+	}
+}
+
+function pvewhmcs_vmReboot_internal($params) {
 	// Gather access credentials for PVE, as these are no longer passed for Client Area
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
@@ -1363,11 +1408,11 @@ function pvewhmcs_vmReboot($params) {
 	if ($proxmox->login()) {
 		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
 		if ($guest === null) {
-			return "Error performing action. Unable to find guest linked to Service ID ({$params['serviceid']})";
+			return pvewhmcs_client_safe_error($params, __FUNCTION__, 'Guest mapping was not found for the requested service.');
 		}
 		$guest_node = pvewhmcs_find_guest_node($proxmox, $guest, $params['serviceid']);
 		if (empty($guest_node)) {
-			return "Error performing action. Unable to determine node for VMID {$guest->vmid}.";
+			return pvewhmcs_client_safe_error($params, __FUNCTION__, array('stage' => 'node-resolution', 'vmid' => isset($guest->vmid) ? (int) $guest->vmid : null));
 		}
 		$pve_cmdparam = array();
 		// Check status before doing anything
@@ -1396,14 +1441,31 @@ function pvewhmcs_vmReboot($params) {
 	if (isset($response) && !isset($response['errors'])) {
 		return "success";
 	} else {
-		// Handle the case where there are errors
-		$response_message = isset($response['errors']) ? json_encode($response['errors']) : "Unknown Error, consider using Debug Mode.";
-		return "Error performing action. " . $response_message;
+		return pvewhmcs_client_safe_error(
+			$params,
+			__FUNCTION__,
+			array(
+				'stage' => 'pve-response',
+				'response' => isset($response) ? pvewhmcs_redact_log_value($response) : 'No response / login failed',
+			)
+		);
 	}
 }
 
 // PVE API FUNCTION, CLIENT/ADMIN: Shutdown the VM/CT
 function pvewhmcs_vmShutdown($params) {
+	try {
+		return pvewhmcs_vmShutdown_internal($params);
+	} catch (\Throwable $e) {
+		return pvewhmcs_client_safe_error(
+			$params,
+			'pvewhmcs_vmShutdown',
+			$e->getMessage()
+		);
+	}
+}
+
+function pvewhmcs_vmShutdown_internal($params) {
 	// Gather access credentials for PVE, as these are no longer passed for Client Area
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
@@ -1421,11 +1483,11 @@ function pvewhmcs_vmShutdown($params) {
 	if ($proxmox->login()) {
 		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
 		if ($guest === null) {
-			return "Error performing action. Unable to find guest linked to Service ID ({$params['serviceid']})";
+			return pvewhmcs_client_safe_error($params, __FUNCTION__, 'Guest mapping was not found for the requested service.');
 		}
 		$guest_node = pvewhmcs_find_guest_node($proxmox, $guest, $params['serviceid']);
 		if (empty($guest_node)) {
-			return "Error performing action. Unable to determine node for VMID {$guest->vmid}.";
+			return pvewhmcs_client_safe_error($params, __FUNCTION__, array('stage' => 'node-resolution', 'vmid' => isset($guest->vmid) ? (int) $guest->vmid : null));
 		}
 		$pve_cmdparam = array();
 		// $pve_cmdparam['timeout'] = '60';
@@ -1446,14 +1508,31 @@ function pvewhmcs_vmShutdown($params) {
 	if (isset($response) && !isset($response['errors'])) {
 		return "success";
 	} else {
-		// Handle the case where there are errors
-		$response_message = isset($response['errors']) ? json_encode($response['errors']) : "Unknown Error, consider using Debug Mode.";
-		return "Error performing action. " . $response_message;
+		return pvewhmcs_client_safe_error(
+			$params,
+			__FUNCTION__,
+			array(
+				'stage' => 'pve-response',
+				'response' => isset($response) ? pvewhmcs_redact_log_value($response) : 'No response / login failed',
+			)
+		);
 	}
 }
 
 // PVE API FUNCTION, CLIENT/ADMIN: Stop the VM/CT
 function pvewhmcs_vmStop($params) {
+	try {
+		return pvewhmcs_vmStop_internal($params);
+	} catch (\Throwable $e) {
+		return pvewhmcs_client_safe_error(
+			$params,
+			'pvewhmcs_vmStop',
+			$e->getMessage()
+		);
+	}
+}
+
+function pvewhmcs_vmStop_internal($params) {
 	// Gather access credentials for PVE, as these are no longer passed for Client Area
 	$pveservice = Capsule::table('tblhosting')->find($params['serviceid']) ;
 	$pveserver = Capsule::table('tblservers')->where('id','=',$pveservice->server)->get()[0] ;
@@ -1470,11 +1549,11 @@ function pvewhmcs_vmStop($params) {
 	if ($proxmox->login()) {
 		$guest = Capsule::table('mod_pvewhmcs_vms')->where('id','=',$params['serviceid'])->first();
 		if ($guest === null) {
-			return "Error performing action. Unable to find guest linked to Service ID ({$params['serviceid']})";
+			return pvewhmcs_client_safe_error($params, __FUNCTION__, 'Guest mapping was not found for the requested service.');
 		}
 		$guest_node = pvewhmcs_find_guest_node($proxmox, $guest, $params['serviceid']);
 		if (empty($guest_node)) {
-			return "Error performing action. Unable to determine node for VMID {$guest->vmid}.";
+			return pvewhmcs_client_safe_error($params, __FUNCTION__, array('stage' => 'node-resolution', 'vmid' => isset($guest->vmid) ? (int) $guest->vmid : null));
 		}
 		$pve_cmdparam = array();
 		// $pve_cmdparam['timeout'] = '60';
@@ -1495,9 +1574,14 @@ function pvewhmcs_vmStop($params) {
 	if (isset($response) && !isset($response['errors'])) {
 		return "success";
 	} else {
-		// Handle the case where there are errors
-		$response_message = isset($response['errors']) ? json_encode($response['errors']) : "Unknown Error, consider using Debug Mode.";
-		return "Error performing action. " . $response_message;
+		return pvewhmcs_client_safe_error(
+			$params,
+			__FUNCTION__,
+			array(
+				'stage' => 'pve-response',
+				'response' => isset($response) ? pvewhmcs_redact_log_value($response) : 'No response / login failed',
+			)
+		);
 	}
 }
 
