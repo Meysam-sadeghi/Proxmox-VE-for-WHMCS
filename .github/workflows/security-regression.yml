@@ -271,7 +271,7 @@ jobs:
 
           grep -Fq 'FILTER_VALIDATE_DOMAIN' modules/servers/pvewhmcs/novnc_router.php
           grep -Fq "\$cspConnect = 'wss://' . \$apiHost . ':' . \$apiPort;" modules/servers/pvewhmcs/novnc_router.php
-          grep -Fq '"connect-src " . $cspConnect' modules/servers/pvewhmcs/novnc_router.php
+          grep -Fq '"connect-src '\''self'\'' " . $cspConnect' modules/servers/pvewhmcs/novnc_router.php
           grep -Fq "where('userid', '=', \$clientId)" modules/servers/pvewhmcs/novnc_router.php
           grep -Fq "where('id', '=', \$serviceId)" modules/servers/pvewhmcs/novnc_router.php
           grep -Fq "where('id', '=', \$serverId)" modules/servers/pvewhmcs/novnc_router.php
