@@ -1124,18 +1124,28 @@ function pvewhmcs_noVNC($params) {
 		$_SESSION['pvewhmcs_console'] = array();
 	}
 
-	// Keep only live sessions to avoid unbounded session growth.
+	// Keep only live sessions and cap outstanding nonces to avoid
+	// client-session storage growth when a user repeatedly opens the action.
 	$now = time();
 	foreach ($_SESSION['pvewhmcs_console'] as $key => $entry) {
 		if (!is_array($entry) || empty($entry['expires']) || (int) $entry['expires'] < $now) {
 			unset($_SESSION['pvewhmcs_console'][$key]);
 		}
 	}
+	while (count($_SESSION['pvewhmcs_console']) >= 5) {
+		reset($_SESSION['pvewhmcs_console']);
+		$oldestKey = key($_SESSION['pvewhmcs_console']);
+		if ($oldestKey === null) {
+			break;
+		}
+		unset($_SESSION['pvewhmcs_console'][$oldestKey]);
+	}
 
 	$nonce = bin2hex(random_bytes(32));
 	$_SESSION['pvewhmcs_console'][$nonce] = array(
 		'serviceid' => $serviceId,
 		'userid' => $userId,
+		'created' => $now,
 		'expires' => $now + 60,
 	);
 
