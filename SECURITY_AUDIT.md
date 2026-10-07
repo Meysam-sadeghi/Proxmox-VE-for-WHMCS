@@ -212,11 +212,15 @@ Customer/root passwords and/or PVE credentials may persist in the WHMCS Module L
 - Full cluster resource/task dumps were removed from addon debug logs.
 - Reinstall activity errors are redacted before being written to WHMCS Activity Log.
 - The full WHMCS provisioning params array is not exposed to the Smarty client template.
+- All first-party WHMCS module logging is now forced through `pvewhmcs_secure_log_module_call()`, which recursively redacts request, response and processed-data values before calling WHMCS.
+- Direct `logModuleCall()` calls outside the centralized wrapper are rejected by CI.
+- Caller-provided `replaceVars` are intentionally discarded by the wrapper because those values are commonly raw secrets and are unnecessary after recursive redaction.
+- Security Regression CI executes a behavioral test with known request/response/processed/replacement secrets and fails if any reaches the captured WHMCS log call.
 
 ### Fix commit / verification
 
 - Commits: `386e671ee4dcd92f58f937abda64c837dc1ac7f6`, `05d9b95fddef7015bc29a3719dda686fe3a1387c`
-- Verification: static sink review complete. Enable Module Log in staging, exercise success/error paths with known test secrets, and confirm those values never appear. Purge historical Module Log entries and rotate credentials that may have been logged before this fix.
+- Verification: static sink review complete. Automated behavioral redaction coverage is added in Security Regression CI. Enable Module Log in staging, exercise success/error paths with known test secrets, and confirm those values never appear. Purge historical Module Log entries and rotate credentials that may have been logged before this fix.
 
 ## SEC-004 — PVE and VNC bearer tickets transported in query strings
 

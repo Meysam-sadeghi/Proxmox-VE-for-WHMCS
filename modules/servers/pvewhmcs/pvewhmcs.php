@@ -42,7 +42,7 @@ global $guest;
 /**
  * Build a deliberately small, non-secret context for WHMCS module logging.
  *
- * Never pass the raw provisioning $params array to logModuleCall(): it can
+ * Never pass the raw provisioning $params array to pvewhmcs_secure_log_module_call(): it can
  * contain PVE credentials and customer/root passwords.
  */
 function pvewhmcs_safe_log_context(array $params) {
@@ -196,7 +196,7 @@ function pvewhmcs_CreateAccount($params) {
 
 			// DEBUG: Log Node Selection logic
 			if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-				logModuleCall(
+				pvewhmcs_secure_log_module_call(
 					'pvewhmcs',
 					'Node Selection Debug',
 					array(
@@ -226,7 +226,7 @@ function pvewhmcs_CreateAccount($params) {
 
 			// DEBUG - Log the request parameters before it's fired
 			if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-				logModuleCall(
+				pvewhmcs_secure_log_module_call(
 					'pvewhmcs',
 					__FUNCTION__,
 					$logrequest,
@@ -507,7 +507,7 @@ function pvewhmcs_CreateAccount($params) {
 
 				// DEBUG - Log the request parameters after it's fired
 				if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-					logModuleCall(
+					pvewhmcs_secure_log_module_call(
 						'pvewhmcs',
 						__FUNCTION__,
 						$logrequest,
@@ -580,7 +580,7 @@ function pvewhmcs_CreateAccount($params) {
 			$safeError = pvewhmcs_redact_log_value($e->getMessage());
 			// Record only a redacted error in WHMCS's module log.
 			if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-				logModuleCall(
+				pvewhmcs_secure_log_module_call(
 					'pvewhmcs',
 					__FUNCTION__,
 					pvewhmcs_safe_log_context($params),
@@ -678,7 +678,7 @@ function pvewhmcs_TestConnection(array $params) {
 		}
 	} catch (Exception $e) {
 		$safeError = pvewhmcs_redact_log_value($e->getMessage());
-		logModuleCall(
+		pvewhmcs_secure_log_module_call(
 			'pvewhmcs',
 			__FUNCTION__,
 			pvewhmcs_safe_log_context($params),
@@ -719,7 +719,7 @@ function pvewhmcs_SuspendAccount(array $params) {
 
 	// DEBUG - Log the request parameters before it's fired
 	if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-		logModuleCall(
+		pvewhmcs_secure_log_module_call(
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
@@ -758,7 +758,7 @@ function pvewhmcs_UnsuspendAccount(array $params) {
 
 	// DEBUG - Log the request parameters before it's fired
 	if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-		logModuleCall(
+		pvewhmcs_secure_log_module_call(
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
@@ -919,7 +919,7 @@ function pvewhmcs_fetch_rrd_stat($proxmox, $node, $vtype, $vmid, $timeframe, $ds
 		// RRD data unavailable - this is normal for new VMs or during migration.
 		// Log if debug mode is on, but don't crash the Client Area.
 		if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-			logModuleCall(
+			pvewhmcs_secure_log_module_call(
 				'pvewhmcs',
 				'pvewhmcs_fetch_rrd_stat',
 				'RRD fetch failed for ' . $vtype . '/' . $vmid . ' (' . $ds . ', ' . $timeframe . ')',
@@ -968,7 +968,7 @@ function pvewhmcs_ClientArea($params) {
 		$vm_status = null;
 		// DEBUG - Log the /cluster/resources and /config for the VM/CT, if enabled
 		if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-			logModuleCall(
+			pvewhmcs_secure_log_module_call(
 				'pvewhmcs',
 				__FUNCTION__,
 				array(
@@ -1194,7 +1194,7 @@ function pvewhmcs_vmStart($params) {
 	}
 	// DEBUG - Log the request parameters before it's fired
 	if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-		logModuleCall(
+		pvewhmcs_secure_log_module_call(
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
@@ -1251,7 +1251,7 @@ function pvewhmcs_vmReboot($params) {
 
 	// DEBUG - Log the request parameters before it's fired
 	if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-		logModuleCall(
+		pvewhmcs_secure_log_module_call(
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
@@ -1301,7 +1301,7 @@ function pvewhmcs_vmShutdown($params) {
 
 	// DEBUG - Log the request parameters before it's fired
 	if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-		logModuleCall(
+		pvewhmcs_secure_log_module_call(
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
@@ -1350,7 +1350,7 @@ function pvewhmcs_vmStop($params) {
 
 	// DEBUG - Log the request parameters before it's fired
 	if (Capsule::table('mod_pvewhmcs')->where('id', '1')->value('debug_mode') == 1) {
-		logModuleCall(
+		pvewhmcs_secure_log_module_call(
 			'pvewhmcs',
 			__FUNCTION__,
 			$logrequest,
