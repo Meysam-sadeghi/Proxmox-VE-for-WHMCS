@@ -1024,7 +1024,7 @@ jobs:
           if not m:
               raise SystemExit(f"missing internal action {fn}")
           body = m.group(1)
-          auth = body.find("pvewhmcs_authorize_service_action($params)")
+          auth = body.find("pvewhmcs_authorize_service_action($params")
           pve = body.find("new PVE2_API")
           if auth < 0 or pve < 0 or auth > pve:
               raise SystemExit(f"{fn} does not authorize ownership before PVE connection")
