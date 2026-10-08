@@ -1098,6 +1098,44 @@ Without an explicit module-level CSRF boundary, a state-changing custom action d
 
 ---
 
+## SEC-024 — Suspended clients could still reach power-action authorization
+
+**Severity:** HIGH / MEDIUM  
+**Status:** FIXED - NEEDS VERIFICATION  
+**Category:** CWE-285 Improper Authorization / business-logic bypass  
+**Primary file:** `modules/servers/pvewhmcs/pvewhmcs.php`
+
+### Evidence
+
+The module correctly revalidated service ownership and guest mapping before client power actions, but the shared authorization helper did not require `tblhosting.domainstatus = Active`. A service could therefore remain correctly owned/mapped while being Suspended in WHMCS and still pass the module's ownership boundary.
+
+### Security / billing impact
+
+A suspended customer could potentially invoke Start/Reboot/Power Off/Hard Stop through the custom client functions and reach Proxmox despite WHMCS suspension state. In a hosting environment this can bypass the intended service-control consequence of non-payment or administrative suspension.
+
+### Remediation applied
+
+- `pvewhmcs_authorize_service_action()` now accepts an explicit `$requireActive` policy flag.
+- Client-only power wrappers invoke their shared internal action with `requireActive=true`.
+- Start/Reboot/Shutdown/Stop internal functions pass that flag into the authorization helper before PVE credentials are decrypted or an API connection is created.
+- Existing admin/internal power functions keep `requireActive=false`, so administrators retain the ability to recover or operate suspended services deliberately.
+- noVNC and Reinstall already had independent Active-service checks and remain unchanged.
+
+### Acceptance criteria
+
+- Active rightful client can use all four client power actions.
+- Suspended service owner cannot invoke Start/Reboot/Shutdown/Hard Stop.
+- Cross-user service requests remain rejected.
+- Admin power actions remain available for suspended services.
+- The Active-state check occurs before PVE API access.
+
+### Fix commit / verification
+
+- Commit: pending merge
+- Verification: Security Regression CI behaviorally tests both Active and Suspended ownership contexts. Final WHMCS staging should suspend a test service and verify every client power action is denied while an administrator can still recover the guest.
+
+---
+
 # Additional hardening observations
 
 These are not currently ranked above the primary findings but should be considered during refactoring:

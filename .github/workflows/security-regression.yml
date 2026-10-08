@@ -1020,11 +1020,11 @@ jobs:
           import pathlib, re, sys
           fn = sys.argv[1]
           src = pathlib.Path("modules/servers/pvewhmcs/pvewhmcs.php").read_text()
-          m = re.search(r"function pvewhmcs_" + re.escape(fn) + r"_internal\(\$params\) \{(.*?)(?=\nfunction |\Z)", src, re.S)
+          m = re.search(r"function pvewhmcs_" + re.escape(fn) + r"_internal\(\$params(?:, \$requireActive = false)?\) \{(.*?)(?=\nfunction |\Z)", src, re.S)
           if not m:
               raise SystemExit(f"missing internal action {fn}")
           body = m.group(1)
-          auth = body.find("pvewhmcs_authorize_service_action($params)")
+          auth = body.find("pvewhmcs_authorize_service_action($params")
           pve = body.find("new PVE2_API")
           if auth < 0 or pve < 0 or auth > pve:
               raise SystemExit(f"{fn} does not authorize ownership before PVE connection")
@@ -1144,8 +1144,58 @@ jobs:
               if (!$failed) {
                   throw new RuntimeException('Mismatched WHMCS/PVE guest ownership mapping was accepted.');
               }
+
+              // Restore a valid mapping, then verify that client power
+              // authorization rejects non-Active services while ordinary
+              // admin/internal ownership validation can still inspect them.
+              \Illuminate\Database\Capsule\Manager::$guest = (object) array(
+                  'id' => 55,
+                  'user_id' => 77,
+                  'vmid' => 501,
+                  'vtype' => 'qemu',
+              );
+              \Illuminate\Database\Capsule\Manager::$service->domainstatus = 'Suspended';
+
+              $adminOk = pvewhmcs_authorize_service_action(array(
+                  'serviceid' => 55,
+                  'userid' => 77,
+              ), false);
+              if ((int) $adminOk['serviceid'] !== 55) {
+                  throw new RuntimeException('Non-client/admin ownership validation unexpectedly failed for suspended service.');
+              }
+
+              $failed = false;
+              try {
+                  pvewhmcs_authorize_service_action(array(
+                      'serviceid' => 55,
+                      'userid' => 77,
+                  ), true);
+              } catch (RuntimeException $e) {
+                  $failed = strpos($e->getMessage(), 'Active') !== false;
+              }
+
+              if (!$failed) {
+                  throw new RuntimeException('Suspended service passed the client-active authorization guard.');
+              }
           }
           PHP
+
+      - name: Enforce active-service gate on client power wrappers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import pathlib, re
+          src = pathlib.Path("modules/servers/pvewhmcs/pvewhmcs.php").read_text()
+          for fn in ("Start", "Reboot", "Shutdown", "Stop"):
+              m = re.search(
+                  rf"function pvewhmcs_clientVm{fn}\(\$params\) \{{(.*?)(?=\nfunction |\Z)",
+                  src,
+                  re.S,
+              )
+              if not m or f"pvewhmcs_vm{fn}_internal($params, true)" not in m.group(1):
+                  raise SystemExit(f"clientVm{fn} does not require Active service status")
+          PY
 
       - name: Enforce Client Area ownership before PVE reads
         shell: bash
