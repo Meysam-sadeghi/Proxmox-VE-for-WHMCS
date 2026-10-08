@@ -3,7 +3,7 @@
 > **Repository:** `Meysam-sadeghi/Proxmox-VE-for-WHMCS`  
 > **Audit date:** 2026-10-07  
 > **Original audit baseline:** `7ff41ccecde7e1d846860e3b24208129ee8fdd42`  
-> **Security-hardened source baseline:** `412821098cccd89d8d25222b1c61d6566b7fe640`  
+> **Security-hardened source baseline:** `50201572290f69b003c49424e0c3c93305ae8e29`  
 > **Module version:** 1.3.6  
 > **Companion architecture map:** `SYSTEM_MAP.md`
 
@@ -11,7 +11,7 @@
 
 This file is the authoritative security-review handoff for future remediation work.
 
-**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; the hardened baseline now includes SEC-001 through SEC-023, with the latest source hardening merged at `412821098cccd89d8d25222b1c61d6566b7fe640`. For future work, compare the current HEAD against `412821098cccd89d8d25222b1c61d6566b7fe640` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
+**AI / maintainer instruction:** Read `SYSTEM_MAP.md` and this file first. Do not repeat the original full-repository audit unless source code has materially changed. The original audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`; the hardened baseline now includes SEC-001 through SEC-024, with the latest source hardening merged at `50201572290f69b003c49424e0c3c93305ae8e29`. For future work, compare the current HEAD against `50201572290f69b003c49424e0c3c93305ae8e29` and inspect only changed source files plus their direct callers. Documentation-only commits after that merge do not invalidate this security baseline.
 
 When fixing an item:
 
@@ -1131,8 +1131,8 @@ A suspended customer could potentially invoke Start/Reboot/Power Off/Hard Stop t
 
 ### Fix commit / verification
 
-- Commit: pending merge
-- Verification: Security Regression CI behaviorally tests both Active and Suspended ownership contexts. Final WHMCS staging should suspend a test service and verify every client power action is denied while an administrator can still recover the guest.
+- Commit: `50201572290f69b003c49424e0c3c93305ae8e29`
+- Verification: PHP Syntax Check and Security Regression Checks passed, including Active/Suspended ownership behavior and the client wrapper policy. Final WHMCS staging should suspend a test service and verify every client power action is denied while an administrator can still recover the guest.
 
 ---
 
