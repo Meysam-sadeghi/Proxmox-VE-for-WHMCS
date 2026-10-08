@@ -96,7 +96,7 @@ function pvewhmcs_clientarea_error_response(array $params, $detail = '') {
  * Revalidate WHMCS service ownership and its PVE guest mapping before any
  * client/admin power action reaches the Proxmox API.
  */
-function pvewhmcs_authorize_service_action(array $params) {
+function pvewhmcs_authorize_service_action(array $params, $requireActive = false) {
 	$serviceId = isset($params['serviceid']) ? (int) $params['serviceid'] : 0;
 	$userId = isset($params['userid'])
 		? (int) $params['userid']
@@ -113,6 +113,10 @@ function pvewhmcs_authorize_service_action(array $params) {
 
 	if (!$service) {
 		throw new RuntimeException('WHMCS service ownership validation failed.');
+	}
+
+	if ($requireActive && (string) $service->domainstatus !== 'Active') {
+		throw new RuntimeException('Client power actions require an Active WHMCS service.');
 	}
 
 	$guest = Capsule::table('mod_pvewhmcs_vms')
@@ -1120,7 +1124,7 @@ function pvewhmcs_require_client_power_csrf() {
 function pvewhmcs_clientVmStart($params) {
 	try {
 		pvewhmcs_require_client_power_csrf();
-		return pvewhmcs_vmStart_internal($params);
+		return pvewhmcs_vmStart_internal($params, true);
 	} catch (\Throwable $e) {
 		return pvewhmcs_client_safe_error($params, __FUNCTION__, $e->getMessage());
 	}
@@ -1129,7 +1133,7 @@ function pvewhmcs_clientVmStart($params) {
 function pvewhmcs_clientVmReboot($params) {
 	try {
 		pvewhmcs_require_client_power_csrf();
-		return pvewhmcs_vmReboot_internal($params);
+		return pvewhmcs_vmReboot_internal($params, true);
 	} catch (\Throwable $e) {
 		return pvewhmcs_client_safe_error($params, __FUNCTION__, $e->getMessage());
 	}
@@ -1138,7 +1142,7 @@ function pvewhmcs_clientVmReboot($params) {
 function pvewhmcs_clientVmShutdown($params) {
 	try {
 		pvewhmcs_require_client_power_csrf();
-		return pvewhmcs_vmShutdown_internal($params);
+		return pvewhmcs_vmShutdown_internal($params, true);
 	} catch (\Throwable $e) {
 		return pvewhmcs_client_safe_error($params, __FUNCTION__, $e->getMessage());
 	}
@@ -1147,7 +1151,7 @@ function pvewhmcs_clientVmShutdown($params) {
 function pvewhmcs_clientVmStop($params) {
 	try {
 		pvewhmcs_require_client_power_csrf();
-		return pvewhmcs_vmStop_internal($params);
+		return pvewhmcs_vmStop_internal($params, true);
 	} catch (\Throwable $e) {
 		return pvewhmcs_client_safe_error($params, __FUNCTION__, $e->getMessage());
 	}
@@ -1461,8 +1465,8 @@ function pvewhmcs_vmStart($params) {
 	}
 }
 
-function pvewhmcs_vmStart_internal($params) {
-	$authorized = pvewhmcs_authorize_service_action($params);
+function pvewhmcs_vmStart_internal($params, $requireActive = false) {
+	$authorized = pvewhmcs_authorize_service_action($params, $requireActive);
 	$pveservice = $authorized['service'];
 	$guest = $authorized['guest'];
 
@@ -1524,8 +1528,8 @@ function pvewhmcs_vmReboot($params) {
 	}
 }
 
-function pvewhmcs_vmReboot_internal($params) {
-	$authorized = pvewhmcs_authorize_service_action($params);
+function pvewhmcs_vmReboot_internal($params, $requireActive = false) {
+	$authorized = pvewhmcs_authorize_service_action($params, $requireActive);
 	$pveservice = $authorized['service'];
 	$guest = $authorized['guest'];
 
@@ -1597,8 +1601,8 @@ function pvewhmcs_vmShutdown($params) {
 	}
 }
 
-function pvewhmcs_vmShutdown_internal($params) {
-	$authorized = pvewhmcs_authorize_service_action($params);
+function pvewhmcs_vmShutdown_internal($params, $requireActive = false) {
+	$authorized = pvewhmcs_authorize_service_action($params, $requireActive);
 	$pveservice = $authorized['service'];
 	$guest = $authorized['guest'];
 
@@ -1663,8 +1667,8 @@ function pvewhmcs_vmStop($params) {
 	}
 }
 
-function pvewhmcs_vmStop_internal($params) {
-	$authorized = pvewhmcs_authorize_service_action($params);
+function pvewhmcs_vmStop_internal($params, $requireActive = false) {
+	$authorized = pvewhmcs_authorize_service_action($params, $requireActive);
 	$pveservice = $authorized['service'];
 	$guest = $authorized['guest'];
 
