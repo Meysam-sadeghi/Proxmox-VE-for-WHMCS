@@ -132,8 +132,8 @@ Path: `modules/servers/pvewhmcs/`
 - `pvewhmcs.php` — **core service lifecycle/provisioning/client actions**; loads the reinstall module and registers the `Reinstall OS` custom client action.
 - `reinstall.php` — **Proxmox VE 9+ destructive reinstall/rebuild workflow**, including allowlisted OS selection, ownership/CSRF/confirmation checks, locking, replacement-first cutover, rollback, password regeneration, and mapping update.
 - `clientarea.tpl` — client area UI for status/specs/statistics.
-- `novnc_router.php` — authenticated, one-time server-side console bootstrap.
-- `novnc_client.php` — minimal one-time noVNC browser client with pinned CSP/WSS destination.
+- `novnc_router.php` — authenticated, one-time server-side console bootstrap and inline minimal noVNC browser page with pinned CSP/WSS destination.
+- `novnc_cookie_clear.php` — one-time endpoint that expires the short-lived parent-domain PVE auth cookie immediately after the WebSocket handshake succeeds.
 - `whmcs.json` — WHMCS module metadata.
 - `js/CircularLoader.js` — client gauge UI.
 - `img/*` — VM/OS/status icons.
@@ -225,8 +225,8 @@ Responsibilities:
 
 Files:
 
-- `modules/servers/pvewhmcs/novnc_router.php` — authenticated server-side console bootstrap.
-- `modules/servers/pvewhmcs/novnc_client.php` — minimal one-time noVNC browser page.
+- `modules/servers/pvewhmcs/novnc_router.php` — authenticated server-side console bootstrap plus the minimal inline noVNC browser page.
+- `modules/servers/pvewhmcs/novnc_cookie_clear.php` — one-time post-handshake cookie expiry endpoint.
 
 The customer-facing service action generates a random one-time nonce but submits it only in a POST body to `novnc_router.php`; no console nonce, PVE/VNC ticket, host, port, path, node or VMID is placed in the public URL. The router boots WHMCS, revalidates the logged-in client, Active service ownership and service-to-guest mapping, resolves the assigned PVE server and guest node server-side, then obtains restricted `vnc@pve` tickets.
 
@@ -471,8 +471,8 @@ When this repository changes:
 1. Read this file and `SECURITY_AUDIT.md` first.
 2. Get the current HEAD SHA.
 3. The original full-repository audit baseline is `7ff41ccecde7e1d846860e3b24208129ee8fdd42`.
-4. The current security-hardened source baseline is `412821098cccd89d8d25222b1c61d6566b7fe640` (SEC-001 through SEC-023).
-5. If current HEAD is newer, compare it against `412821098cccd89d8d25222b1c61d6566b7fe640`; inspect changed source files plus their direct callers. Do not re-read the entire repository unless the diff changes architecture/trust boundaries or the task explicitly requires a new full audit.
+4. The current security-hardened source baseline is `50201572290f69b003c49424e0c3c93305ae8e29` (SEC-001 through SEC-024).
+5. If current HEAD is newer, compare it against `50201572290f69b003c49424e0c3c93305ae8e29`; inspect changed source files plus their direct callers. Do not re-read the entire repository unless the diff changes architecture/trust boundaries or the task explicitly requires a new full audit.
 6. Re-evaluate trust boundaries for any new endpoint, hook, API call, database table, secret, or client-visible value.
 7. If noVNC version changes, compare the vendor tree against the exact upstream release while preserving or replacing the local SEC-011 ZRLE guard with an equivalent upstream fix.
 8. Keep PHP Syntax Check and Security Regression Checks green.
