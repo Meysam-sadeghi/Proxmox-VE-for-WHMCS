@@ -1020,7 +1020,7 @@ jobs:
           import pathlib, re, sys
           fn = sys.argv[1]
           src = pathlib.Path("modules/servers/pvewhmcs/pvewhmcs.php").read_text()
-          m = re.search(r"function pvewhmcs_" + re.escape(fn) + r"_internal\(\$params\) \{(.*?)(?=\nfunction |\Z)", src, re.S)
+          m = re.search(r"function pvewhmcs_" + re.escape(fn) + r"_internal\(\$params(?:, \$requireActive = false)?\) \{(.*?)(?=\nfunction |\Z)", src, re.S)
           if not m:
               raise SystemExit(f"missing internal action {fn}")
           body = m.group(1)
